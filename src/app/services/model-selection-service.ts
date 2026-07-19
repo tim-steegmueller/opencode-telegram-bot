@@ -339,12 +339,22 @@ export async function getModelSelectionLists(): Promise<ModelSelectionLists> {
 export async function reconcileStoredModelSelection(options?: {
   forceCatalogRefresh?: boolean;
 }): Promise<void> {
-  if (getAssistantMode() !== "opencode") {
-    logger.debug("[ModelManager] Skipping OpenCode model validation for external agent mode");
+  const assistantMode = getAssistantMode();
+  const currentModel = getCurrentModel();
+
+  if (assistantMode !== "opencode") {
+    const defaultModel =
+      assistantMode === "agy"
+        ? { providerID: "antigravity", modelID: "gemini-3.5-flash-high" }
+        : { providerID: "cursor", modelID: "auto" };
+    if (currentModel?.providerID !== defaultModel.providerID || !currentModel.modelID) {
+      logger.warn(
+        `[ModelManager] ${assistantMode} mode has no compatible model, selecting ${defaultModel.providerID}/${defaultModel.modelID}`,
+      );
+      setCurrentModel({ ...defaultModel, variant: "default" });
+    }
     return;
   }
-
-  const currentModel = getCurrentModel();
 
   if (!currentModel?.providerID || !currentModel.modelID) {
     return;

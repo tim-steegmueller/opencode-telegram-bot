@@ -451,6 +451,25 @@ describe("app/services/model-selection-service", () => {
       });
     });
 
+    it("repairs an external agent mode without a compatible model", async () => {
+      getAssistantModeMock.mockReturnValue("cursor");
+      setCurrentModelState({
+        providerID: "opencode",
+        modelID: "big-pickle",
+        variant: "high",
+      });
+
+      await reconcileStoredModelSelection();
+
+      expect(providersMock).not.toHaveBeenCalled();
+      expect(getCurrentModelState()).toEqual({
+        providerID: "cursor",
+        modelID: "auto",
+        variant: "default",
+      });
+      expect(setCurrentModelMock).toHaveBeenCalledTimes(1);
+    });
+
     it("logs a short warning without stack when OpenCode server is unavailable", async () => {
       setCurrentModelState({ providerID: "openai", modelID: "gpt-4o", variant: "high" });
       providersMock.mockResolvedValueOnce({ data: null, error: new TypeError("fetch failed") });
