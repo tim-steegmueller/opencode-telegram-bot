@@ -37,6 +37,9 @@ async function readSettingsFile(): Promise<Settings> {
 let settingsWriteQueue: Promise<void> = Promise.resolve();
 
 function writeSettingsFile(settings: Settings): Promise<void> {
+  const settingsFilePath = getSettingsFilePath();
+  const content = JSON.stringify(settings, null, 2);
+
   settingsWriteQueue = settingsWriteQueue
     .catch(() => {
       // Keep write queue alive after failed writes.
@@ -44,9 +47,8 @@ function writeSettingsFile(settings: Settings): Promise<void> {
     .then(async () => {
       try {
         const fs = await import("fs/promises");
-        const settingsFilePath = getSettingsFilePath();
         await fs.mkdir(path.dirname(settingsFilePath), { recursive: true });
-        await fs.writeFile(settingsFilePath, JSON.stringify(settings, null, 2));
+        await fs.writeFile(settingsFilePath, content);
       } catch (err) {
         logger.error("[SettingsManager] Error writing settings file:", err);
       }
@@ -195,6 +197,10 @@ export function setScheduledTaskSessionIgnores(
 export function __resetSettingsForTests(): void {
   currentSettings = {};
   settingsWriteQueue = Promise.resolve();
+}
+
+export function __flushSettingsWritesForTests(): Promise<void> {
+  return settingsWriteQueue;
 }
 
 export async function loadSettings(): Promise<void> {

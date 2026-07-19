@@ -1,9 +1,10 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setRuntimeMode } from "../../../src/runtime/mode.js";
 import {
+  __flushSettingsWritesForTests,
   __resetSettingsForTests,
   getAssistantMode,
   getTtsMode,
@@ -22,6 +23,7 @@ describe("app/stores/settings-store", () => {
   });
 
   afterEach(async () => {
+    await __flushSettingsWritesForTests();
     delete process.env.OPENCODE_TELEGRAM_HOME;
     __resetSettingsForTests();
     await rm(tempHome, { recursive: true, force: true });
@@ -50,5 +52,23 @@ describe("app/stores/settings-store", () => {
     setAssistantMode("agy");
 
     expect(getAssistantMode()).toBe("agy");
+  });
+
+  it("keeps a queued write in the home selected when it was enqueued", async () => {
+    const otherHome = await mkdtemp(path.join(os.tmpdir(), "opencode-telegram-other-home-"));
+
+    setAssistantMode("agy");
+    process.env.OPENCODE_TELEGRAM_HOME = otherHome;
+    await __flushSettingsWritesForTests();
+
+    const persisted = JSON.parse(
+      await readFile(path.join(tempHome, "settings.json"), "utf-8"),
+    ) as { assistantMode?: string };
+    expect(persisted.assistantMode).toBe("agy");
+    await expect(access(path.join(otherHome, "settings.json"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    await rm(otherHome, { recursive: true, force: true });
   });
 });

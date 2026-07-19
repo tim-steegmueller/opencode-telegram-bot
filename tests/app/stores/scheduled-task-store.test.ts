@@ -3,7 +3,11 @@ import path from "node:path";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setRuntimeMode } from "../../../src/runtime/mode.js";
-import { __resetSettingsForTests, loadSettings } from "../../../src/app/stores/settings-store.js";
+import {
+  __flushSettingsWritesForTests,
+  __resetSettingsForTests,
+  loadSettings,
+} from "../../../src/app/stores/settings-store.js";
 import {
   addScheduledTask,
   listScheduledTasks,
@@ -55,6 +59,7 @@ describe("app/stores/scheduled-task-store", () => {
   });
 
   afterEach(async () => {
+    await __flushSettingsWritesForTests();
     delete process.env.OPENCODE_TELEGRAM_HOME;
     __resetSettingsForTests();
     await rm(tempHome, { recursive: true, force: true });
