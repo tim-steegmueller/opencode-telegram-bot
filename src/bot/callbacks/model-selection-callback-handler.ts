@@ -59,7 +59,9 @@ async function applyModelSelectionAndNotify(
 
   selectModel(modelInfo);
   keyboardManager.updateModel(modelInfo);
-  await pinnedMessageManager.refreshContextLimit();
+  if (modelInfo.providerID !== "antigravity") {
+    await pinnedMessageManager.refreshContextLimit();
+  }
 
   const currentAgent = await resolveProjectAgent(getStoredAgent());
   const contextInfo =

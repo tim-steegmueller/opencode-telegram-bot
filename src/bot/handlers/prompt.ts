@@ -158,7 +158,7 @@ export async function processUserPrompt(
   const selectedModel = getStoredModel();
   const attachmentParts = [...getPendingAttachments(ctx.chat!.id), ...fileParts];
 
-  if (getAssistantMode() === "agy" && selectedModel.providerID === "antigravity") {
+  if (getAssistantMode() === "agy") {
     if (isAgyAgentRunActive()) {
       await ctx.reply(t("agy.busy"));
       return false;

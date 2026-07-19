@@ -372,7 +372,7 @@ describe("bot/handlers/prompt", () => {
     expect(getPendingAttachments(777)).toEqual([]);
   });
 
-  it("uses OpenCode when AGY mode is enabled but the selected model is not antigravity", async () => {
+  it("uses AGY mode with its default model when the selected model came from OpenCode", async () => {
     mocked.getAssistantModeMock.mockReturnValue("agy");
     mocked.storedModel = {
       providerID: "deepseek",
@@ -385,22 +385,22 @@ describe("bot/handlers/prompt", () => {
     const handled = await processUserPrompt(ctx, "Create GitHub issues", deps);
 
     expect(handled).toBe(true);
-    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
-    expect(mocked.attachToSessionMock).toHaveBeenCalled();
+    expect(mocked.attachToSessionMock).not.toHaveBeenCalled();
 
     const backgroundTask = getScheduledBackgroundTask();
     await backgroundTask.task();
 
-    expect(mocked.sessionPromptAsyncMock).toHaveBeenCalledWith(
+    expect(mocked.runAgyAgentPromptMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        parts: [{ type: "text", text: "Create GitHub issues" }],
+        prompt: "Create GitHub issues",
         model: {
           providerID: "deepseek",
           modelID: "deepseek-v4-pro",
+          variant: "max",
         },
-        variant: "max",
       }),
     );
+    expect(mocked.sessionPromptAsyncMock).not.toHaveBeenCalled();
   });
 
   it("streams AGY activity updates into the Telegram progress message", async () => {

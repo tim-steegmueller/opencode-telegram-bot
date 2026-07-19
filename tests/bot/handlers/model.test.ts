@@ -34,6 +34,7 @@ vi.mock("../../../src/bot/menus/inline-menu.js", () => ({
 }));
 
 import {
+  buildAgyModelSelectionMenu,
   buildModelSelectionMenu,
 } from "../../../src/bot/menus/model-selection-menu.js";
 
@@ -67,6 +68,19 @@ describe("bot model selection", () => {
   });
 
   describe("buildModelSelectionMenu", () => {
+    it("builds a dedicated AGY model list", () => {
+      const keyboard = buildAgyModelSelectionMenu({
+        providerID: "antigravity",
+        modelID: "claude-opus-4.6",
+      });
+
+      expect(keyboard.inline_keyboard).toHaveLength(7);
+      expect(keyboard.inline_keyboard[5][0]).toMatchObject({
+        text: "✅ claude-opus-4.6",
+        callback_data: "model:antigravity:claude-opus-4.6",
+      });
+    });
+
     it("includes search button as the first row", async () => {
       mocked.getModelSelectionListsMock.mockResolvedValue({
         favorites: [{ providerID: "openai", modelID: "gpt-4o" }],

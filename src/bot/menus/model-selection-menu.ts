@@ -11,10 +11,36 @@ import type {
 import { logger } from "../../utils/logger.js";
 import { t } from "../../i18n/index.js";
 import { replyWithInlineMenu } from "./inline-menu.js";
+import { getAssistantMode } from "../../app/stores/settings-store.js";
 
 export const MODEL_SEARCH_CALLBACK = "model:search";
 export const MODEL_SEARCH_AGAIN_CALLBACK = "model:search:again";
 export const MODEL_SEARCH_CANCEL_CALLBACK = "model:search:cancel";
+
+const AGY_MODELS: FavoriteModel[] = [
+  { providerID: "antigravity", modelID: "gemini-3.5-flash-high" },
+  { providerID: "antigravity", modelID: "gemini-3.5-flash-medium" },
+  { providerID: "antigravity", modelID: "gemini-3.1-pro-high" },
+  { providerID: "antigravity", modelID: "gemini-3.1-pro-low" },
+  { providerID: "antigravity", modelID: "claude-sonnet-4.6" },
+  { providerID: "antigravity", modelID: "claude-opus-4.6" },
+  { providerID: "antigravity", modelID: "gpt-oss-120b" },
+];
+
+export function buildAgyModelSelectionMenu(currentModel?: ModelInfo): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const [index, model] of AGY_MODELS.entries()) {
+    const isActive =
+      currentModel?.providerID === model.providerID && currentModel.modelID === model.modelID;
+    const label = `${isActive ? "✅ " : ""}${model.modelID}`;
+    keyboard.text(label, `model:${model.providerID}:${model.modelID}`);
+    if (index < AGY_MODELS.length - 1) {
+      keyboard.row();
+    }
+  }
+
+  return keyboard;
+}
 
 function buildModelSelectionMenuText(modelLists: ModelSelectionLists): string {
   const lines = [t("model.menu.select"), t("model.menu.favorites_title")];
@@ -76,6 +102,15 @@ export async function buildModelSelectionMenu(
 export async function showModelSelectionMenu(ctx: Context): Promise<void> {
   try {
     const currentModel = fetchCurrentModel();
+    if (getAssistantMode() === "agy") {
+      await replyWithInlineMenu(ctx, {
+        menuKind: "model",
+        text: t("model.menu.select"),
+        keyboard: buildAgyModelSelectionMenu(currentModel),
+      });
+      return;
+    }
+
     const modelLists = await getModelSelectionLists();
     const keyboard = await buildModelSelectionMenu(currentModel, modelLists);
 
