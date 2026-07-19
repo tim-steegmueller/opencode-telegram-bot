@@ -135,6 +135,15 @@ export function setAssistantMode(mode: AssistantMode): void {
   void writeSettingsFile(currentSettings);
 }
 
+export function getAgyAccount(): string {
+  return currentSettings.agyAccount ?? "default";
+}
+
+export function setAgyAccount(alias: string): void {
+  currentSettings.agyAccount = alias;
+  void writeSettingsFile(currentSettings);
+}
+
 export function getPinnedMessageId(): number | undefined {
   return currentSettings.pinnedMessageId;
 }

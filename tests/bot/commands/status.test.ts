@@ -7,6 +7,8 @@ const mocked = vi.hoisted(() => ({
   getCurrentSessionMock: vi.fn(),
   getCurrentProjectMock: vi.fn(),
   getTtsModeMock: vi.fn(),
+  getAssistantModeMock: vi.fn(),
+  getAgyAccountMock: vi.fn(),
   fetchCurrentAgentMock: vi.fn(),
   fetchCurrentModelMock: vi.fn(),
   getGitWorktreeContextMock: vi.fn(),
@@ -36,6 +38,8 @@ vi.mock("../../../src/app/services/session-service.js", () => ({
 vi.mock("../../../src/app/stores/settings-store.js", () => ({
   getCurrentProject: mocked.getCurrentProjectMock,
   getTtsMode: mocked.getTtsModeMock,
+  getAssistantMode: mocked.getAssistantModeMock,
+  getAgyAccount: mocked.getAgyAccountMock,
 }));
 
 vi.mock("../../../src/app/services/agent-selection-service.js", () => ({
@@ -78,6 +82,8 @@ describe("bot/commands/status-command", () => {
     mocked.getCurrentSessionMock.mockReset();
     mocked.getCurrentProjectMock.mockReset();
     mocked.getTtsModeMock.mockReset();
+    mocked.getAssistantModeMock.mockReset();
+    mocked.getAgyAccountMock.mockReset();
     mocked.fetchCurrentAgentMock.mockReset();
     mocked.fetchCurrentModelMock.mockReset();
     mocked.getGitWorktreeContextMock.mockReset();
@@ -95,6 +101,8 @@ describe("bot/commands/status-command", () => {
     mocked.getCurrentSessionMock.mockReturnValue({ id: "s1", title: "S", directory: "/repo" });
     mocked.getCurrentProjectMock.mockReturnValue({ id: "p1", worktree: "/repo", name: "Repo" });
     mocked.getTtsModeMock.mockReturnValue("all");
+    mocked.getAssistantModeMock.mockReturnValue("opencode");
+    mocked.getAgyAccountMock.mockReturnValue("default");
     mocked.fetchCurrentAgentMock.mockResolvedValue("build");
     mocked.fetchCurrentModelMock.mockReturnValue({ providerID: "openai", modelID: "gpt-5" });
     mocked.getGitWorktreeContextMock.mockResolvedValue(null);
@@ -148,5 +156,30 @@ describe("bot/commands/status-command", () => {
     const message = mocked.sendBotTextMock.mock.calls[0]?.[0]?.text as string;
     expect(message).toContain("Project: /repo-main: feature/mobile");
     expect(message).toContain("Worktree: /repo-feature");
+  });
+
+  it("shows the AGY account and model without OpenCode session details", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.getAgyAccountMock.mockReturnValue("google-3");
+    mocked.fetchCurrentModelMock.mockReturnValue({
+      providerID: "antigravity",
+      modelID: "claude-opus-4.6",
+    });
+
+    const ctx = {
+      chat: { id: 42, type: "private" },
+      message: { text: "/status" },
+      api: {},
+      reply: vi.fn(),
+    } as unknown as Context;
+
+    await statusCommand(ctx as never);
+
+    const message = mocked.sendBotTextMock.mock.calls[0]?.[0]?.text as string;
+    expect(message).toContain("Agent: AGY");
+    expect(message).toContain("Model: Claude Opus 4.6 (Thinking)");
+    expect(message).toContain("Account: google-3");
+    expect(message).not.toContain("Session:");
+    expect(mocked.fetchCurrentAgentMock).not.toHaveBeenCalled();
   });
 });

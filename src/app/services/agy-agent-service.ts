@@ -32,6 +32,7 @@ export interface AgyAgentRunOptions {
   projectDirectory: string;
   model?: ModelInfo;
   attachments?: FilePartInput[];
+  accountHome?: string;
   onProgress?: (line: string) => void;
 }
 
@@ -217,15 +218,16 @@ async function listRecentFiles(directory: string, sinceMs: number): Promise<stri
   }
 }
 
-function getAgyDataDir(): string {
+function getAgyDataDir(accountHome?: string): string {
   return (
     process.env.AGY_DATA_DIR?.trim() ||
-    path.join(process.env.HOME ?? "", ".gemini", "antigravity-cli")
+    path.join(accountHome ?? process.env.HOME ?? "", ".gemini", "antigravity-cli")
   );
 }
 
 function startAgyActivityMonitor(
   startedAtMs: number,
+  dataDir: string,
   onProgress?: (line: string) => void,
 ): {
   pollNow: () => Promise<void>;
@@ -243,7 +245,6 @@ function startAgyActivityMonitor(
       return;
     }
 
-    const dataDir = getAgyDataDir();
     const sinceMs = startedAtMs - ACTIVITY_FILE_LOOKBACK_MS;
     const files = [
       ...(await listRecentFiles(path.join(dataDir, "log"), sinceMs)),
@@ -292,6 +293,7 @@ function spawnAgyFile(
     timeout: number;
     maxBuffer: number;
     env: NodeJS.ProcessEnv;
+    agyDataDir: string;
     onProgress?: (line: string) => void;
   },
 ): Promise<{ stdout: string; stderr: string }> {
@@ -301,7 +303,7 @@ function spawnAgyFile(
     let settled = false;
 
     const startedAtMs = Date.now();
-    const monitor = startAgyActivityMonitor(startedAtMs, options.onProgress);
+    const monitor = startAgyActivityMonitor(startedAtMs, options.agyDataDir, options.onProgress);
     const child = spawn(file, args, {
       cwd: options.cwd,
       env: options.env,
@@ -390,6 +392,7 @@ export async function runAgyAgentPrompt({
   projectDirectory,
   model,
   attachments = [],
+  accountHome,
   onProgress,
 }: AgyAgentRunOptions): Promise<AgyAgentRunResult> {
   if (activeRun) {
@@ -423,9 +426,11 @@ export async function runAgyAgentPrompt({
       maxBuffer: MAX_BUFFER_BYTES,
       env: {
         ...process.env,
+        ...(accountHome ? { HOME: accountHome } : {}),
         ANTIGRAVITY_AGENT: "1",
         AI_AGENT: "1",
       },
+      agyDataDir: getAgyDataDir(accountHome),
       onProgress,
     });
 

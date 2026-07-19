@@ -14,6 +14,7 @@ export interface Settings {
   currentAgent?: string;
   currentModel?: ModelInfo;
   assistantMode?: "opencode" | "agy";
+  agyAccount?: string;
   pinnedMessageId?: number;
   ttsMode?: "off" | "all" | "auto";
   sessionDirectoryCache?: SessionDirectoryCacheInfo;

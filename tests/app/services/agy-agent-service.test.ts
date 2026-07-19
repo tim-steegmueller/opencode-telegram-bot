@@ -107,6 +107,7 @@ describe("app/services/agy-agent-service", () => {
     await runAgyAgentPrompt({
       prompt: "Review the screenshot",
       projectDirectory: "/tmp/project",
+      accountHome: "/tmp/account-home",
       attachments: [
         {
           type: "file",
@@ -123,6 +124,11 @@ describe("app/services/agy-agent-service", () => {
 
     expect(attachmentDirectory).toMatch(/opencode-telegram-agy-/);
     expect(prompt).toContain(`${attachmentDirectory}/1-screen.png`);
+    expect(mocked.spawnMock.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({
+        env: expect.objectContaining({ HOME: "/tmp/account-home" }),
+      }),
+    );
     await expect(access(attachmentDirectory)).rejects.toMatchObject({ code: "ENOENT" });
   });
 

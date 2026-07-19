@@ -6,6 +6,7 @@ export const en = {
   "cmd.description.sessions": "List sessions",
   "cmd.description.messages": "Browse session messages",
   "cmd.description.mode": "Choose assistant mode",
+  "cmd.description.account": "Choose AGY Google account",
   "cmd.description.tts": "Choose audio reply mode",
   "cmd.description.projects": "List projects",
   "cmd.description.worktree": "Switch git worktrees",
@@ -21,6 +22,10 @@ export const en = {
 
   "callback.unknown_command": "Unknown command",
   "callback.processing_error": "Processing error",
+
+  "account.prompt": "Choose the Google account for new AGY jobs:",
+  "account.selected": "AGY account selected: {account}",
+  "account.unavailable": "This account profile is unavailable. Open /account again.",
 
   "error.load_agents": "❌ Failed to load agents list",
   "error.load_models": "❌ Failed to load models list",
@@ -114,6 +119,7 @@ export const en = {
   "status.line.uptime_sec": "Uptime: {seconds} sec",
   "status.line.mode": "Agent: {mode}",
   "status.line.model": "Model: {model}",
+  "status.line.account": "Account: {account}",
   "status.line.tts": "Audio replies: {tts}",
   "status.tts.off": "Off",
   "status.tts.all": "All",

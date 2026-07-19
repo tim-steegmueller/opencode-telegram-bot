@@ -2,7 +2,12 @@ import { CommandContext, Context } from "grammy";
 import { opencodeClient } from "../../opencode/client.js";
 import { getGitWorktreeContext } from "../../app/services/worktree-service.js";
 import { getCurrentSession } from "../../app/services/session-service.js";
-import { getCurrentProject, getTtsMode } from "../../app/stores/settings-store.js";
+import {
+  getAgyAccount,
+  getAssistantMode,
+  getCurrentProject,
+  getTtsMode,
+} from "../../app/stores/settings-store.js";
 import { fetchCurrentAgent } from "../../app/services/agent-selection-service.js";
 import { fetchCurrentModel } from "../../app/services/model-selection-service.js";
 import { getAgentDisplayName } from "../../app/types/agent.js";
@@ -11,6 +16,7 @@ import { pinnedMessageManager } from "../pinned/pinned-message-manager.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../i18n/index.js";
 import { sendBotText } from "../messages/telegram-text.js";
+import { resolveAgyModelName } from "../../app/services/agy-agent-service.js";
 
 export async function statusCommand(ctx: CommandContext<Context>) {
   try {
@@ -36,17 +42,25 @@ export async function statusCommand(ctx: CommandContext<Context>) {
             : t("status.tts.auto"),
     })}\n`;
 
-    // Add agent information
-    const currentAgent = await fetchCurrentAgent();
-    const agentDisplay = currentAgent
-      ? getAgentDisplayName(currentAgent)
-      : t("status.agent_not_set");
+    const assistantMode = getAssistantMode();
+    const currentAgent = assistantMode === "agy" ? null : await fetchCurrentAgent();
+    const agentDisplay =
+      assistantMode === "agy"
+        ? "AGY"
+        : currentAgent
+          ? getAgentDisplayName(currentAgent)
+          : t("status.agent_not_set");
     message += `${t("status.line.mode", { mode: agentDisplay })}\n`;
 
-    // Add model information
     const currentModel = fetchCurrentModel();
-    const modelDisplay = `🤖 ${currentModel.providerID}/${currentModel.modelID}`;
+    const modelDisplay =
+      assistantMode === "agy"
+        ? resolveAgyModelName(currentModel)
+        : `🤖 ${currentModel.providerID}/${currentModel.modelID}`;
     message += `${t("status.line.model", { model: modelDisplay })}\n`;
+    if (assistantMode === "agy") {
+      message += `${t("status.line.account", { account: getAgyAccount() })}\n`;
+    }
 
     const currentProject = getCurrentProject();
     if (currentProject) {
@@ -76,12 +90,14 @@ export async function statusCommand(ctx: CommandContext<Context>) {
       message += t("status.project_hint");
     }
 
-    const currentSession = getCurrentSession();
-    if (currentSession) {
-      message += `\n${t("status.session_selected", { title: currentSession.title })}\n`;
-    } else {
-      message += `\n${t("status.session_not_selected")}\n`;
-      message += t("status.session_hint");
+    if (assistantMode !== "agy") {
+      const currentSession = getCurrentSession();
+      if (currentSession) {
+        message += `\n${t("status.session_selected", { title: currentSession.title })}\n`;
+      } else {
+        message += `\n${t("status.session_not_selected")}\n`;
+        message += t("status.session_hint");
+      }
     }
 
     if (ctx.chat) {
@@ -89,7 +105,7 @@ export async function statusCommand(ctx: CommandContext<Context>) {
         pinnedMessageManager.initialize(ctx.api, ctx.chat.id);
       }
       // Fetch context limit if not yet loaded (e.g. fresh bot start)
-      if (pinnedMessageManager.getContextLimit() === 0) {
+      if (assistantMode !== "agy" && pinnedMessageManager.getContextLimit() === 0) {
         await pinnedMessageManager.refreshContextLimit();
       }
       keyboardManager.initialize(ctx.api, ctx.chat.id);

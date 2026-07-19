@@ -36,6 +36,7 @@ const mocked = vi.hoisted(() => ({
   },
   runAgyAgentPromptMock: vi.fn(),
   isAgyAgentRunActiveMock: vi.fn(),
+  resolveSelectedAgyAccountMock: vi.fn(),
 }));
 
 vi.mock("../../../src/opencode/client.js", () => ({
@@ -79,6 +80,10 @@ vi.mock("../../../src/app/services/agy-agent-service.js", () => ({
   isAgyAgentRunActive: mocked.isAgyAgentRunActiveMock,
   resolveAgyModelName: vi.fn(() => "Gemini 3.5 Flash (High)"),
   runAgyAgentPrompt: mocked.runAgyAgentPromptMock,
+}));
+
+vi.mock("../../../src/app/services/agy-account-service.js", () => ({
+  resolveSelectedAgyAccount: mocked.resolveSelectedAgyAccountMock,
 }));
 
 vi.mock("../../../src/bot/pinned/pinned-message-manager.js", () => ({
@@ -219,9 +224,15 @@ describe("bot/handlers/prompt", () => {
     };
     mocked.runAgyAgentPromptMock.mockReset();
     mocked.isAgyAgentRunActiveMock.mockReset();
+    mocked.resolveSelectedAgyAccountMock.mockReset();
     mocked.getTtsModeMock.mockReturnValue("off");
     mocked.getAssistantModeMock.mockReturnValue("opencode");
     mocked.isAgyAgentRunActiveMock.mockReturnValue(false);
+    mocked.resolveSelectedAgyAccountMock.mockResolvedValue({
+      alias: "default",
+      homeDirectory: "/home/tim",
+      isDefault: true,
+    });
     mocked.runAgyAgentPromptMock.mockResolvedValue({
       output: "AGY done",
       modelName: "Gemini 3.5 Flash (High)",
@@ -312,6 +323,7 @@ describe("bot/handlers/prompt", () => {
           modelID: "gemini-3.5-flash-high",
           variant: "default",
         },
+        accountHome: "/home/tim",
         onProgress: expect.any(Function),
       }),
     );
@@ -370,6 +382,20 @@ describe("bot/handlers/prompt", () => {
       expect.objectContaining({ attachments: [attachment] }),
     );
     expect(getPendingAttachments(777)).toEqual([]);
+  });
+
+  it("rejects an unavailable AGY account without falling back", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.resolveSelectedAgyAccountMock.mockRejectedValue(new Error("profile missing"));
+    const ctx = createContext();
+
+    const handled = await processUserPrompt(ctx, "Review repo", createDeps());
+
+    expect(handled).toBe(false);
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+    expect(ctx.reply).toHaveBeenCalledWith(
+      "This account profile is unavailable. Open /account again.",
+    );
   });
 
   it("uses AGY mode with its default model when the selected model came from OpenCode", async () => {

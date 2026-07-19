@@ -15,6 +15,7 @@ export const ar: I18nDictionary = {
   "cmd.description.sessions": "عرض الجلسات السابقة",
   "cmd.description.messages": "استعراض رسائل الجلسة",
   "cmd.description.mode": "اختيار وضع المساعد",
+  "cmd.description.account": "اختيار حساب Google لـ AGY",
   "cmd.description.tts": "اختيار وضع الردود الصوتية",
   "cmd.description.projects": "عرض المشاريع",
   "cmd.description.worktree": "التبديل بين نسخ العمل في Git",
@@ -32,6 +33,10 @@ export const ar: I18nDictionary = {
 
   "callback.unknown_command": "الأمر غير معروف",
   "callback.processing_error": "تعذر تنفيذ الطلب",
+
+  "account.prompt": "اختر حساب Google لمهام AGY الجديدة:",
+  "account.selected": "تم اختيار حساب AGY: {account}",
+  "account.unavailable": "ملف الحساب غير متاح. افتح /account مرة أخرى.",
 
   "error.load_agents": "❌ تعذر تحميل قائمة الوكلاء",
   "error.load_models": "❌ تعذر تحميل قائمة النماذج",
@@ -104,6 +109,7 @@ export const ar: I18nDictionary = {
   "status.line.uptime_sec": "مدة التشغيل: {seconds} ثانية",
   "status.line.mode": "الوكيل: {mode}",
   "status.line.model": "النموذج: {model}",
+  "status.line.account": "الحساب: {account}",
   "status.line.tts": "الردود الصوتية: {tts}",
   "status.tts.off": "معطّلة",
   "status.tts.all": "الكل",

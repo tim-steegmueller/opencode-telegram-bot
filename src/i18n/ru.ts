@@ -8,6 +8,7 @@ export const ru: I18nDictionary = {
   "cmd.description.sessions": "Список сессий",
   "cmd.description.messages": "Сообщения текущей сессии",
   "cmd.description.mode": "Выбрать режим ассистента",
+  "cmd.description.account": "Выбрать Google-аккаунт AGY",
   "cmd.description.tts": "Выбрать режим аудиоответов",
   "cmd.description.projects": "Список проектов",
   "cmd.description.worktree": "Переключить git worktree",
@@ -23,6 +24,10 @@ export const ru: I18nDictionary = {
 
   "callback.unknown_command": "Неизвестная команда",
   "callback.processing_error": "Ошибка обработки",
+
+  "account.prompt": "Выберите Google-аккаунт для новых задач AGY:",
+  "account.selected": "Выбран аккаунт AGY: {account}",
+  "account.unavailable": "Этот профиль недоступен. Откройте /account снова.",
 
   "error.load_agents": "❌ Ошибка при загрузке списка агентов",
   "error.load_models": "❌ Ошибка при загрузке списка моделей",
@@ -114,6 +119,7 @@ export const ru: I18nDictionary = {
   "status.line.uptime_sec": "Uptime: {seconds} сек",
   "status.line.mode": "Агент: {mode}",
   "status.line.model": "Модель: {model}",
+  "status.line.account": "Аккаунт: {account}",
   "status.line.tts": "Аудиоответы: {tts}",
   "status.tts.off": "Выкл",
   "status.tts.all": "Все",

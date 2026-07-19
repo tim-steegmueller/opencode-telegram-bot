@@ -8,6 +8,7 @@ export const zh: I18nDictionary = {
   "cmd.description.sessions": "列出会话",
   "cmd.description.messages": "浏览会话消息",
   "cmd.description.mode": "选择助手模式",
+  "cmd.description.account": "选择 AGY Google 账号",
   "cmd.description.tts": "选择语音回复模式",
   "cmd.description.projects": "列出项目",
   "cmd.description.worktree": "切换 git worktree",
@@ -23,6 +24,10 @@ export const zh: I18nDictionary = {
 
   "callback.unknown_command": "未知命令",
   "callback.processing_error": "处理错误",
+
+  "account.prompt": "选择用于新 AGY 任务的 Google 账号：",
+  "account.selected": "已选择 AGY 账号：{account}",
+  "account.unavailable": "该账号配置不可用。请重新打开 /account。",
 
   "error.load_agents": "❌ 加载代理列表失败",
   "error.load_models": "❌ 加载模型列表失败",
@@ -103,6 +108,7 @@ export const zh: I18nDictionary = {
   "status.line.uptime_sec": "运行时间：{seconds} 秒",
   "status.line.mode": "Agent：{mode}",
   "status.line.model": "模型：{model}",
+  "status.line.account": "账号：{account}",
   "status.line.tts": "语音回复：{tts}",
   "status.tts.off": "关闭",
   "status.tts.all": "全部",

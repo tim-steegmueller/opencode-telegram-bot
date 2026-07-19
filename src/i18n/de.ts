@@ -8,6 +8,7 @@ export const de: I18nDictionary = {
   "cmd.description.sessions": "Sitzungen auflisten",
   "cmd.description.messages": "Sitzungsnachrichten durchsuchen",
   "cmd.description.mode": "Assistentenmodus wählen",
+  "cmd.description.account": "AGY-Google-Konto wählen",
   "cmd.description.tts": "Audioantwort-Modus wählen",
   "cmd.description.projects": "Projekte auflisten",
   "cmd.description.worktree": "Git-Worktrees wechseln",
@@ -23,6 +24,10 @@ export const de: I18nDictionary = {
 
   "callback.unknown_command": "Unbekannter Befehl",
   "callback.processing_error": "Verarbeitungsfehler",
+
+  "account.prompt": "Wähle das Google-Konto für neue AGY-Jobs:",
+  "account.selected": "AGY-Konto gewählt: {account}",
+  "account.unavailable": "Dieses Account-Profil ist nicht verfügbar. Öffne /account erneut.",
 
   "error.load_agents": "❌ Agentenliste konnte nicht geladen werden",
   "error.load_models": "❌ Modellliste konnte nicht geladen werden",
@@ -121,6 +126,7 @@ export const de: I18nDictionary = {
   "status.line.uptime_sec": "Betriebszeit: {seconds} s",
   "status.line.mode": "Agent: {mode}",
   "status.line.model": "Modell: {model}",
+  "status.line.account": "Konto: {account}",
   "status.line.tts": "Audioantworten: {tts}",
   "status.tts.off": "Aus",
   "status.tts.all": "Alle",

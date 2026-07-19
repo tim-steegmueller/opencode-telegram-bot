@@ -44,6 +44,7 @@ import {
   clearPendingAttachments,
   getPendingAttachments,
 } from "../../app/services/pending-attachment-service.js";
+import { resolveSelectedAgyAccount } from "../../app/services/agy-account-service.js";
 
 /** Module-level references for async callbacks that don't have ctx. */
 let botInstance: Bot<Context> | null = null;
@@ -165,6 +166,14 @@ export async function processUserPrompt(
     }
 
     const modelName = resolveAgyModelName(selectedModel);
+    const agyAccount = await resolveSelectedAgyAccount().catch((error) => {
+      logger.warn("[AGY] Selected account profile is unavailable", error);
+      return null;
+    });
+    if (!agyAccount) {
+      await ctx.reply(t("account.unavailable"));
+      return false;
+    }
     const progressMessage = await ctx.reply(t("agy.started", { model: modelName }));
     const startedAt = Date.now();
     const activityLines: string[] = [];
@@ -223,6 +232,7 @@ export async function processUserPrompt(
           projectDirectory: currentProject.worktree,
           model: selectedModel,
           attachments: attachmentParts,
+          accountHome: agyAccount.homeDirectory,
           onProgress: (line) => {
             if (!activityLines.includes(line)) {
               activityLines.push(line);
