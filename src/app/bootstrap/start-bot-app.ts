@@ -15,9 +15,14 @@ import { reconcileStoredModelSelection } from "../services/model-selection-servi
 import { getRuntimeMode } from "../../runtime/mode.js";
 import { getRuntimePaths } from "../../runtime/paths.js";
 import { clearServiceStateFile } from "../../runtime/service/manager.js";
-import { getServiceStateFilePathFromEnv, isServiceChildProcess } from "../../runtime/service/env.js";
+import {
+  getServiceStateFilePathFromEnv,
+  isServiceChildProcess,
+} from "../../runtime/service/env.js";
 import { getLogFilePath, initializeLogger, logger } from "../../utils/logger.js";
 import { safeBackgroundTask } from "../../utils/safe-background-task.js";
+import { markAppRunning, markAppShuttingDown } from "../services/app-lifecycle-service.js";
+import { recoverDurableAgyAgentJobs } from "../services/agy-agent-service.js";
 
 const SHUTDOWN_TIMEOUT_MS = 5000;
 
@@ -36,6 +41,7 @@ async function getBotVersion(): Promise<string> {
 
 export async function startBotApp(): Promise<void> {
   await initializeLogger();
+  markAppRunning();
 
   const mode = getRuntimeMode();
   const runtimePaths = getRuntimePaths();
@@ -90,6 +96,7 @@ export async function startBotApp(): Promise<void> {
     }
 
     shutdownStarted = true;
+    markAppShuttingDown();
     logger.info(`[App] Received ${signal}, shutting down...`);
     cleanupBotRuntime(`app_shutdown_${signal.toLowerCase()}`);
     opencodeAutoRestartService.stop();
@@ -125,6 +132,8 @@ export async function startBotApp(): Promise<void> {
       logger.info("[Bot] Webhook removed, switching to long polling");
     }
 
+    await recoverDurableAgyAgentJobs(bot);
+
     await scheduledTaskRuntime.initialize(
       bot,
       createScheduledTaskDeliverySender(bot.api, config.telegram.allowedUserId),
@@ -143,6 +152,7 @@ export async function startBotApp(): Promise<void> {
       },
     });
   } finally {
+    markAppShuttingDown();
     process.off("SIGINT", handleSigint);
     process.off("SIGTERM", handleSigterm);
     if (shutdownTimeout) {

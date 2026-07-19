@@ -10,6 +10,10 @@ import {
   getPendingAttachments,
   storePendingAttachments,
 } from "../../../src/app/services/pending-attachment-service.js";
+import {
+  markAppRunning,
+  markAppShuttingDown,
+} from "../../../src/app/services/app-lifecycle-service.js";
 
 const mocked = vi.hoisted(() => ({
   currentProject: { id: "project-1", worktree: "D:\\Projects\\Repo" },
@@ -199,6 +203,7 @@ function getScheduledBackgroundTask(): {
 
 describe("bot/handlers/prompt", () => {
   beforeEach(() => {
+    markAppRunning();
     __resetPendingAttachmentsForTests();
     mocked.currentProject = { id: "project-1", worktree: "D:\\Projects\\Repo" };
     mocked.currentSession = {
@@ -252,6 +257,21 @@ describe("bot/handlers/prompt", () => {
     });
     mocked.sessionPromptMock.mockResolvedValue({ data: {}, error: null });
     mocked.sessionPromptAsyncMock.mockResolvedValue({ data: {}, error: null });
+  });
+
+  it("does not dispatch a prompt after gateway shutdown has started", async () => {
+    markAppShuttingDown();
+    const ctx = createContext();
+
+    const handled = await processUserPrompt(ctx, "Do not lose this request", createDeps());
+
+    expect(handled).toBe(false);
+    expect(mocked.safeBackgroundTaskMock).not.toHaveBeenCalled();
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+    expect(mocked.sessionPromptAsyncMock).not.toHaveBeenCalled();
+    expect(ctx.reply).toHaveBeenCalledWith(
+      "The bot is restarting. This request was not started; please send it again shortly.",
+    );
   });
 
   it("registers suppression entry for text prompts", async () => {
@@ -343,12 +363,9 @@ describe("bot/handlers/prompt", () => {
       url: "data:image/png;base64,aW1hZ2U=",
     } as const;
 
-    const handled = await processUserPrompt(
-      createContext(),
-      "Review this UI",
-      createDeps(),
-      [attachment],
-    );
+    const handled = await processUserPrompt(createContext(), "Review this UI", createDeps(), [
+      attachment,
+    ]);
 
     expect(handled).toBe(true);
     const backgroundTask = getScheduledBackgroundTask();

@@ -72,6 +72,7 @@ export const ar: I18nDictionary = {
   "bot.session_busy": "⏳ الوكيل مشغول بتنفيذ مهمة الآن. انتظر حتى ينتهي، أو استخدم /abort لإيقاف المهمة الحالية.",
   "bot.session_reset_project_mismatch": "⚠️ الجلسة النشطة مرتبطة بمشروع مختلف، لذلك تمت إعادة ضبطها. استخدم /sessions لاختيار جلسة أو /new لبدء جلسة جديدة.",
   "bot.prompt_send_error": "تعذر إرسال الطلب إلى OpenCode.",
+  "bot.shutting_down": "تجري إعادة تشغيل البوت. لم يبدأ هذا الطلب؛ أرسله مرة أخرى بعد قليل.",
   "bot.session_error": "🔴 أعاد OpenCode الخطأ التالي: {message}",
   "bot.session_retry": "🔁 {message}\n\nاستمر مزوّد الخدمة في إرجاع الخطأ نفسه بعد عدة محاولات. استخدم /abort لإيقاف المهمة.",
   "bot.external_user_input": "رسالة واردة من واجهة أخرى",

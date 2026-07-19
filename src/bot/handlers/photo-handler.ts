@@ -1,10 +1,16 @@
 import type { Context } from "grammy";
 import type { FilePartInput, Model } from "@opencode-ai/sdk/v2";
 import { downloadTelegramFile, toDataUri } from "../../app/services/file-download-service.js";
-import { getModelCapabilities, supportsInput } from "../../app/services/model-capabilities-service.js";
+import {
+  getModelCapabilities,
+  supportsInput,
+} from "../../app/services/model-capabilities-service.js";
 import { getStoredModel } from "../../app/services/model-selection-service.js";
 import { getAssistantMode, type AssistantMode } from "../../app/stores/settings-store.js";
-import { storePendingAttachments } from "../../app/services/pending-attachment-service.js";
+import {
+  PENDING_ATTACHMENT_TTL_MINUTES,
+  storePendingAttachments,
+} from "../../app/services/pending-attachment-service.js";
 import { t } from "../../i18n/index.js";
 import { logger } from "../../utils/logger.js";
 import { processUserPrompt, type ProcessPromptDeps } from "./prompt.js";
@@ -73,7 +79,9 @@ export async function handlePhotoMessage(ctx: Context, deps: PhotoHandlerDeps): 
     logger.info(`[Bot] Sending photo (${downloadedFile.buffer.length} bytes) with prompt`);
     if (!caption.trim()) {
       storePendingAttachments(ctx.chat!.id, [filePart]);
-      await ctx.reply(t("bot.photo_waiting_for_prompt", { minutes: "10" }));
+      await ctx.reply(
+        t("bot.photo_waiting_for_prompt", { minutes: PENDING_ATTACHMENT_TTL_MINUTES }),
+      );
       return;
     }
 

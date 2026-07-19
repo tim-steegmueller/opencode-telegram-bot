@@ -120,7 +120,7 @@ describe("bot/handlers/photo-handler", () => {
       expect.objectContaining({ type: "file", mime: "image/jpeg", filename: "photo.jpg" }),
     ]);
     expect(replyMock).toHaveBeenCalledWith(
-      t("bot.photo_waiting_for_prompt", { minutes: "10" }),
+      t("bot.photo_waiting_for_prompt", { minutes: 3 }),
     );
   });
 });

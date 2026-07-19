@@ -5,6 +5,10 @@ import {
   type MediaGroupHandlerDeps,
 } from "../../../src/bot/handlers/media-group-handler.js";
 import { t } from "../../../src/i18n/index.js";
+import {
+  __resetPendingAttachmentsForTests,
+  getPendingAttachments,
+} from "../../../src/app/services/pending-attachment-service.js";
 
 function createBaseContext(message: Record<string, unknown>): {
   ctx: Context;
@@ -110,6 +114,7 @@ function createDeps(overrides: Partial<MediaGroupHandlerDeps> = {}): {
     downloadFile: downloadMock,
     getModelCapabilities: getCapabilitiesMock,
     getStoredModel: vi.fn(() => ({ providerID: "test-provider", modelID: "test-model" })),
+    getAssistantMode: vi.fn(() => "opencode"),
     processPrompt: processPromptMock,
     ...overrides,
   };
@@ -126,6 +131,7 @@ async function addToHandler(handler: MediaGroupAttachmentHandler, ctx: Context):
 describe("bot/handlers/media-group", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    __resetPendingAttachmentsForTests();
   });
 
   afterEach(() => {
@@ -155,25 +161,20 @@ describe("bot/handlers/media-group", () => {
 
     expect(first.replyMock).toHaveBeenCalledWith(t("bot.files_downloading"));
     expect(processPromptMock).toHaveBeenCalledTimes(1);
-    expect(processPromptMock).toHaveBeenCalledWith(
-      first.ctx,
-      "What is on these images?",
-      deps,
-      [
-        expect.objectContaining({
-          type: "file",
-          mime: "image/png",
-          filename: "first.png",
-          url: expect.stringMatching(/^data:image\/png;base64,/),
-        }),
-        expect.objectContaining({
-          type: "file",
-          mime: "image/png",
-          filename: "second.png",
-          url: expect.stringMatching(/^data:image\/png;base64,/),
-        }),
-      ],
-    );
+    expect(processPromptMock).toHaveBeenCalledWith(first.ctx, "What is on these images?", deps, [
+      expect.objectContaining({
+        type: "file",
+        mime: "image/png",
+        filename: "first.png",
+        url: expect.stringMatching(/^data:image\/png;base64,/),
+      }),
+      expect.objectContaining({
+        type: "file",
+        mime: "image/png",
+        filename: "second.png",
+        url: expect.stringMatching(/^data:image\/png;base64,/),
+      }),
+    ]);
   });
 
   it("uses the largest photo from each media group item", async () => {
@@ -197,15 +198,10 @@ describe("bot/handlers/media-group", () => {
 
     expect(downloadMock).toHaveBeenCalledWith(first.ctx.api, "large-1");
     expect(downloadMock).toHaveBeenCalledWith(second.ctx.api, "large-2");
-    expect(processPromptMock).toHaveBeenCalledWith(
-      first.ctx,
-      "Compare these photos",
-      deps,
-      [
-        expect.objectContaining({ mime: "image/jpeg", filename: "photo-20.jpg" }),
-        expect.objectContaining({ mime: "image/jpeg", filename: "photo-21.jpg" }),
-      ],
-    );
+    expect(processPromptMock).toHaveBeenCalledWith(first.ctx, "Compare these photos", deps, [
+      expect.objectContaining({ mime: "image/jpeg", filename: "photo-20.jpg" }),
+      expect.objectContaining({ mime: "image/jpeg", filename: "photo-21.jpg" }),
+    ]);
   });
 
   it("combines image, PDF, and text documents into one prompt", async () => {
@@ -320,6 +316,53 @@ describe("bot/handlers/media-group", () => {
     expect(image.replyMock).toHaveBeenCalledWith(t("bot.media_group_not_processed"));
     expect(downloadMock).not.toHaveBeenCalled();
     expect(processPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("does not query OpenCode capabilities for AGY media groups", async () => {
+    const image = createDocumentContext({
+      messageId: 61,
+      fileId: "image-file",
+      filename: "screen.png",
+      mimeType: "image/png",
+      caption: "Review this screen",
+    });
+    const getCapabilitiesMock = vi.fn().mockResolvedValue({ input: { image: false, pdf: false } });
+    const { deps, processPromptMock } = createDeps({
+      getAssistantMode: vi.fn(() => "agy"),
+      getModelCapabilities: getCapabilitiesMock,
+    });
+    const handler = new MediaGroupAttachmentHandler(deps, { debounceMs: 10_000 });
+
+    await addToHandler(handler, image.ctx);
+    await handler.flushAll();
+
+    expect(getCapabilitiesMock).not.toHaveBeenCalled();
+    expect(processPromptMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores a captionless AGY media group for the next text or voice prompt", async () => {
+    const first = createPhotoContext({
+      messageId: 62,
+      smallFileId: "small-1",
+      largeFileId: "large-1",
+    });
+    const second = createPhotoContext({
+      messageId: 63,
+      smallFileId: "small-2",
+      largeFileId: "large-2",
+    });
+    const { deps, processPromptMock } = createDeps({
+      getAssistantMode: vi.fn(() => "agy"),
+    });
+    const handler = new MediaGroupAttachmentHandler(deps, { debounceMs: 10_000 });
+
+    await addToHandler(handler, first.ctx);
+    await addToHandler(handler, second.ctx);
+    await handler.flushAll();
+
+    expect(processPromptMock).not.toHaveBeenCalled();
+    expect(getPendingAttachments(777)).toHaveLength(2);
+    expect(first.replyMock).toHaveBeenCalledWith(t("bot.photo_waiting_for_prompt", { minutes: 3 }));
   });
 
   it("rejects unsupported non-document media in a media group", async () => {

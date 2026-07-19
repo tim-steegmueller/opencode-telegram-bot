@@ -5,6 +5,13 @@ import path from "node:path";
 import type { FilePartInput } from "@opencode-ai/sdk/v2";
 import type { ModelInfo } from "../types/model.js";
 import { logger } from "../../utils/logger.js";
+import {
+  hasRecoveredAgyJob,
+  recoverAgyJobs,
+  runDurableAgyJob,
+  type AgyJobNotification,
+} from "./agy-job-service.js";
+import type { Bot, Context } from "grammy";
 
 const DEFAULT_AGY_PATH = "/home/tim/.local/bin/agy";
 const DEFAULT_AGY_MODEL = "Gemini 3.5 Flash (High)";
@@ -33,12 +40,15 @@ export interface AgyAgentRunOptions {
   model?: ModelInfo;
   attachments?: FilePartInput[];
   accountHome?: string;
+  timeoutMs?: number;
+  notification?: AgyJobNotification;
   onProgress?: (line: string) => void;
 }
 
 export interface AgyAgentRunResult {
   output: string;
   modelName: string;
+  jobId?: string;
 }
 
 function resolveAgyPath(): string {
@@ -59,7 +69,15 @@ export function resolveAgyModelName(model?: ModelInfo): string {
 }
 
 export function isAgyAgentRunActive(): boolean {
-  return activeRun;
+  return activeRun || hasRecoveredAgyJob();
+}
+
+export async function recoverDurableAgyAgentJobs(bot: Bot<Context>): Promise<void> {
+  if (process.env.AGY_WORKER_MODE?.trim() !== "systemd") {
+    return;
+  }
+
+  await recoverAgyJobs(bot);
 }
 
 function decodeDataUri(url: string): Buffer {
@@ -387,19 +405,15 @@ function spawnAgyFile(
   });
 }
 
-export async function runAgyAgentPrompt({
+export async function executeAgyAgentPrompt({
   prompt,
   projectDirectory,
   model,
   attachments = [],
   accountHome,
+  timeoutMs,
   onProgress,
 }: AgyAgentRunOptions): Promise<AgyAgentRunResult> {
-  if (activeRun) {
-    throw new Error("AGY agent run already active");
-  }
-
-  activeRun = true;
   const modelName = resolveAgyModelName(model);
   let preparedAttachments: Awaited<ReturnType<typeof prepareAgyAttachments>> = null;
 
@@ -422,7 +436,7 @@ export async function runAgyAgentPrompt({
     );
     const { stdout, stderr } = await spawnAgyFile(resolveAgyPath(), args, {
       cwd: projectDirectory,
-      timeout: resolveTimeoutMs(),
+      timeout: timeoutMs ?? resolveTimeoutMs(),
       maxBuffer: MAX_BUFFER_BYTES,
       env: {
         ...process.env,
@@ -446,6 +460,27 @@ export async function runAgyAgentPrompt({
     if (preparedAttachments) {
       await rm(preparedAttachments.directory, { recursive: true, force: true });
     }
+  }
+}
+
+export async function runAgyAgentPrompt(options: AgyAgentRunOptions): Promise<AgyAgentRunResult> {
+  if (isAgyAgentRunActive()) {
+    throw new Error("AGY agent run already active");
+  }
+
+  activeRun = true;
+  try {
+    if (process.env.AGY_WORKER_MODE?.trim() === "systemd") {
+      const modelName = resolveAgyModelName(options.model);
+      return await runDurableAgyJob({
+        ...options,
+        modelName,
+        timeoutMs: options.timeoutMs ?? resolveTimeoutMs(),
+      });
+    }
+
+    return await executeAgyAgentPrompt(options);
+  } finally {
     activeRun = false;
   }
 }

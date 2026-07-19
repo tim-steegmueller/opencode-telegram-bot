@@ -9,6 +9,9 @@ import { assistantRunState } from "../../app/managers/assistant-run-state-manage
 import { markAttachedSessionIdle } from "../../app/services/attach-service.js";
 import { clearPromptResponseMode } from "../handlers/prompt.js";
 import { markUserAbortRequested } from "../../app/managers/abort-suppression-manager.js";
+import { getAssistantMode } from "../../app/stores/settings-store.js";
+import { isAgyAgentRunActive } from "../../app/services/agy-agent-service.js";
+import { abortActiveAgyJob } from "../../app/services/agy-job-service.js";
 
 type SessionState = "idle" | "busy" | "not-found";
 
@@ -76,6 +79,28 @@ export async function abortCurrentOperation(
 
   try {
     abortLocalStreaming();
+
+    if (getAssistantMode() === "agy" && isAgyAgentRunActive()) {
+      if (!notifyUser) {
+        await abortActiveAgyJob();
+        return;
+      }
+
+      const waitingMessage = await ctx.reply(t("stop.in_progress"));
+      const chatId = ctx.chat?.id;
+      if (!chatId) {
+        logger.warn("[Abort] Chat context is missing while aborting AGY job");
+        return;
+      }
+
+      const stopped = await abortActiveAgyJob();
+      await ctx.api.editMessageText(
+        chatId,
+        waitingMessage.message_id,
+        stopped ? t("stop.success") : t("stop.warn_maybe_finished"),
+      );
+      return;
+    }
 
     const currentSession = getCurrentSession();
 

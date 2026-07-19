@@ -70,6 +70,7 @@ export const zh: I18nDictionary = {
   "bot.session_reset_project_mismatch":
     "⚠️ 活动会话与所选项目不匹配，因此已重置。使用 /sessions 选择一个会话，或 /new 创建新会话。",
   "bot.prompt_send_error": "向 OpenCode 发送请求失败。",
+  "bot.shutting_down": "机器人正在重启。此请求尚未启动，请稍后重新发送。",
   "bot.session_error": "🔴 OpenCode 返回错误：{message}",
   "bot.session_retry": "🔁 {message}\n\n提供方在重复重试时持续返回同一错误。使用 /abort 可停止。",
   "bot.external_user_input": "外部用户输入",

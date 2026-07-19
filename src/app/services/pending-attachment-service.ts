@@ -1,6 +1,7 @@
 import type { FilePartInput } from "@opencode-ai/sdk/v2";
 
-const PENDING_ATTACHMENT_TTL_MS = 10 * 60 * 1000;
+export const PENDING_ATTACHMENT_TTL_MINUTES = 3;
+const PENDING_ATTACHMENT_TTL_MS = PENDING_ATTACHMENT_TTL_MINUTES * 60 * 1000;
 
 interface PendingAttachmentEntry {
   expiresAt: number;

@@ -45,6 +45,13 @@ import {
   getPendingAttachments,
 } from "../../app/services/pending-attachment-service.js";
 import { resolveSelectedAgyAccount } from "../../app/services/agy-account-service.js";
+import { isAppShuttingDown } from "../../app/services/app-lifecycle-service.js";
+import {
+  markAgyJobNotified,
+  DurableAgyJobAbortedError,
+  DurableAgyJobError,
+  sendAgyResult,
+} from "../../app/services/agy-job-service.js";
 
 /** Module-level references for async callbacks that don't have ctx. */
 let botInstance: Bot<Context> | null = null;
@@ -148,6 +155,11 @@ export async function processUserPrompt(
   const responseMode =
     options.responseMode ?? (getTtsMode() === "all" ? "text_and_tts" : "text_only");
 
+  if (isAppShuttingDown()) {
+    await ctx.reply(t("bot.shutting_down"));
+    return false;
+  }
+
   const currentProject = getCurrentProject();
   if (!currentProject) {
     await ctx.reply(t("bot.project_not_selected"));
@@ -172,6 +184,10 @@ export async function processUserPrompt(
     });
     if (!agyAccount) {
       await ctx.reply(t("account.unavailable"));
+      return false;
+    }
+    if (isAppShuttingDown()) {
+      await ctx.reply(t("bot.shutting_down"));
       return false;
     }
     const progressMessage = await ctx.reply(t("agy.started", { model: modelName }));
@@ -233,6 +249,10 @@ export async function processUserPrompt(
           model: selectedModel,
           attachments: attachmentParts,
           accountHome: agyAccount.homeDirectory,
+          notification: {
+            chatId: ctx.chat!.id,
+            progressMessageId: progressMessage.message_id,
+          },
           onProgress: (line) => {
             if (!activityLines.includes(line)) {
               activityLines.push(line);
@@ -244,9 +264,9 @@ export async function processUserPrompt(
             updateProgressMessage();
           },
         }),
-      onSuccess: (result) => {
+      onSuccess: async (result) => {
         stopHeartbeat();
-        void bot.api
+        await bot.api
           .editMessageText(
             ctx.chat!.id,
             progressMessage.message_id,
@@ -255,19 +275,28 @@ export async function processUserPrompt(
           .catch((sendError) => {
             logger.debug("[AGY] Failed to mark progress message as finished:", sendError);
           });
-        void bot.api
-          .sendMessage(
-            ctx.chat!.id,
-            t("agy.response", { model: result.modelName, output: result.output }),
-          )
-          .catch((sendError) => {
-            logger.error("[AGY] Failed to send agent response:", sendError);
-          });
+        await sendAgyResult(bot, ctx.chat!.id, result.modelName, result.output);
+        if (result.jobId) {
+          await markAgyJobNotified(result.jobId);
+        }
+        logger.info(
+          `[AGY] Agent run completed model="${result.modelName}"${result.jobId ? ` job=${result.jobId}` : ""}`,
+        );
       },
-      onError: (error) => {
+      onError: async (error) => {
         stopHeartbeat();
+        if (error instanceof DurableAgyJobAbortedError) {
+          await bot.api
+            .editMessageText(ctx.chat!.id, progressMessage.message_id, t("stop.success"))
+            .catch((sendError) => {
+              logger.debug("[AGY] Failed to mark progress message as aborted:", sendError);
+            });
+          await markAgyJobNotified(error.jobId);
+          return;
+        }
+
         const details = formatErrorDetails(error, 3000);
-        void bot.api
+        await bot.api
           .editMessageText(
             ctx.chat!.id,
             progressMessage.message_id,
@@ -276,11 +305,10 @@ export async function processUserPrompt(
           .catch((sendError) => {
             logger.debug("[AGY] Failed to mark progress message as failed:", sendError);
           });
-        void bot.api
-          .sendMessage(ctx.chat!.id, t("agy.error", { error: details }))
-          .catch((sendError) => {
-            logger.error("[AGY] Failed to send agent error:", sendError);
-          });
+        await bot.api.sendMessage(ctx.chat!.id, t("agy.error", { error: details }));
+        if (error instanceof DurableAgyJobError) {
+          await markAgyJobNotified(error.jobId);
+        }
       },
     });
 
@@ -429,6 +457,11 @@ export async function processUserPrompt(
     logger.info(
       `[Bot] Calling session.promptAsync (start-only) with agent=${currentAgent}, fileCount=${attachmentParts.length}...`,
     );
+
+    if (isAppShuttingDown()) {
+      await ctx.reply(t("bot.shutting_down"));
+      return false;
+    }
 
     foregroundSessionState.markBusy(currentSession.id, currentSession.directory);
     await markAttachedSessionBusy(currentSession.id);
