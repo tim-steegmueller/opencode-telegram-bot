@@ -4,6 +4,7 @@ import { formatModelForButton } from "../../app/types/model.js";
 import type { ModelInfo } from "../../app/types/model.js";
 import type { ContextInfo } from "./keyboard-types.js";
 import { t } from "../../i18n/index.js";
+import { getAssistantMode } from "../../app/stores/settings-store.js";
 
 /**
  * Format token count for display (e.g., 150000 -> "150K", 1500000 -> "1.5M")
@@ -42,7 +43,9 @@ export function createMainKeyboard(
   variantName?: string,
 ): Keyboard {
   const keyboard = new Keyboard();
+  const assistantMode = getAssistantMode();
   const agentText = getAgentButtonLabel(currentAgent);
+  const engineText = `🧭 ${assistantMode === "agy" ? "AGY" : assistantMode === "cursor" ? "Cursor" : "OpenCode"} Engine`;
 
   // Format model with compact provider/model text and icon
   const modelText = formatModelForButton(currentModel.providerID, currentModel.modelID);
@@ -55,11 +58,14 @@ export function createMainKeyboard(
   // Variant text - default to "💭 Default" if not provided
   const variantText = variantName || t("keyboard.variant_default");
 
-  // Row 1: agent and context buttons
-  keyboard.text(agentText).text(contextText).row();
-
-  // Row 2: model and variant buttons
-  keyboard.text(modelText).text(variantText).row();
+  if (assistantMode === "opencode") {
+    keyboard.text(engineText).text(contextText).row();
+    keyboard.text(modelText).text(variantText).row();
+    keyboard.text(agentText);
+  } else {
+    keyboard.text(engineText).row();
+    keyboard.text(modelText);
+  }
 
   return keyboard.resized().persistent();
 }

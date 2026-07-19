@@ -291,6 +291,14 @@ describe("config boolean env parsing", () => {
     expect(config.tts.voice).toBe("alloy");
   });
 
+  it("loads a local speech-to-text command", async () => {
+    vi.stubEnv("STT_COMMAND", "/opt/local/bin/transcribe");
+
+    const config = await loadConfig();
+
+    expect(config.stt.command).toBe("/opt/local/bin/transcribe");
+  });
+
   it("accepts ElevenLabs as a TTS provider", async () => {
     vi.stubEnv("TTS_PROVIDER", "elevenlabs");
     vi.stubEnv("TTS_API_URL", "https://api.elevenlabs.io/v1");

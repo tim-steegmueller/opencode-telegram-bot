@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
 import { access } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
@@ -84,6 +86,28 @@ describe("app/services/agy-agent-service", () => {
         cwd: "/tmp/project",
         stdio: ["ignore", "pipe", "pipe"],
       }),
+    );
+  });
+
+  it("resolves the default AGY binary from the current home directory", async () => {
+    mocked.spawnMock.mockImplementation(() => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+      setTimeout(() => child.emit("close", 0, null), 0);
+      return child;
+    });
+
+    const { runAgyAgentPrompt } = await import("../../../src/app/services/agy-agent-service.js");
+    await runAgyAgentPrompt({ prompt: "test", projectDirectory: "/tmp/project" });
+
+    expect(mocked.spawnMock.mock.calls[0]?.[0]).toBe(
+      path.join(os.homedir(), ".local", "bin", "agy"),
     );
   });
 

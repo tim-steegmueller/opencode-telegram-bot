@@ -1,3 +1,7 @@
+import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { config } from "../../config.js";
 import { logger } from "../../utils/logger.js";
 
@@ -8,10 +12,80 @@ export interface SttResult {
 }
 
 /**
- * Returns true if STT is configured (API URL and API key are set).
+ * Returns true if a local command or a remote API is configured.
  */
 export function isSttConfigured(): boolean {
-  return Boolean(config.stt.apiUrl && config.stt.apiKey);
+  return Boolean(config.stt.command || (config.stt.apiUrl && config.stt.apiKey));
+}
+
+async function transcribeWithCommand(
+  command: string,
+  audioBuffer: Buffer,
+  filename: string,
+): Promise<SttResult> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "opencode-telegram-stt-"));
+  const audioPath = path.join(directory, path.basename(filename) || "audio.ogg");
+
+  try {
+    await writeFile(audioPath, audioBuffer, { mode: 0o600 });
+    const text = await new Promise<string>((resolve, reject) => {
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      let settled = false;
+      const child = spawn(command, [audioPath], { stdio: ["ignore", "pipe", "pipe"] });
+      const timeout = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        child.kill("SIGTERM");
+        reject(new Error(`STT command timed out after ${STT_REQUEST_TIMEOUT_MS}ms`));
+      }, STT_REQUEST_TIMEOUT_MS);
+      timeout.unref();
+
+      child.stdout?.on("data", (chunk: Buffer | string) => {
+        stdout.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      child.stderr?.on("data", (chunk: Buffer | string) => {
+        stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      child.on("error", (error) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          reject(error);
+        }
+      });
+      child.on("close", (code, signal) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        const stderrText = Buffer.concat(stderr).toString().trim();
+        if (code !== 0) {
+          reject(
+            new Error(
+              `STT command exited with code ${code ?? "null"} signal ${signal ?? "null"}: ${stderrText}`,
+            ),
+          );
+          return;
+        }
+
+        const stdoutText = Buffer.concat(stdout).toString().trim();
+        if (!stdoutText) {
+          reject(new Error("STT command returned an empty transcription"));
+          return;
+        }
+        resolve(stdoutText);
+      });
+    });
+
+    logger.debug(`[STT] Command transcription result: ${text.length} chars`);
+    return { text };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -26,7 +100,13 @@ export function isSttConfigured(): boolean {
  */
 export async function transcribeAudio(audioBuffer: Buffer, filename: string): Promise<SttResult> {
   if (!isSttConfigured()) {
-    throw new Error("STT is not configured: STT_API_URL and STT_API_KEY are required");
+    throw new Error(
+      "STT is not configured: set STT_COMMAND or both STT_API_URL and STT_API_KEY",
+    );
+  }
+
+  if (config.stt.command) {
+    return transcribeWithCommand(config.stt.command, audioBuffer, filename);
   }
 
   const url = `${config.stt.apiUrl}/audio/transcriptions`;

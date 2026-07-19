@@ -12,8 +12,8 @@ import {
   type AgyJobNotification,
 } from "./agy-job-service.js";
 import type { Bot, Context } from "grammy";
+import { resolveAgyCliPath } from "../../runtime/executable-paths.js";
 
-const DEFAULT_AGY_PATH = "/home/tim/.local/bin/agy";
 const DEFAULT_AGY_MODEL = "Gemini 3.5 Flash (High)";
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_BUFFER_BYTES = 4 * 1024 * 1024;
@@ -51,8 +51,8 @@ export interface AgyAgentRunResult {
   jobId?: string;
 }
 
-function resolveAgyPath(): string {
-  return process.env.AGY_CLI_PATH?.trim() || DEFAULT_AGY_PATH;
+function usesDurableWorker(): boolean {
+  return ["systemd", "tmux"].includes(process.env.AGY_WORKER_MODE?.trim() ?? "");
 }
 
 function resolveTimeoutMs(): number {
@@ -73,7 +73,7 @@ export function isAgyAgentRunActive(): boolean {
 }
 
 export async function recoverDurableAgyAgentJobs(bot: Bot<Context>): Promise<void> {
-  if (process.env.AGY_WORKER_MODE?.trim() !== "systemd") {
+  if (!usesDurableWorker()) {
     return;
   }
 
@@ -434,7 +434,7 @@ export async function executeAgyAgentPrompt({
     logger.info(
       `[AGY] Starting agent run model="${modelName}" project=${projectDirectory} promptLength=${prompt.length}`,
     );
-    const { stdout, stderr } = await spawnAgyFile(resolveAgyPath(), args, {
+    const { stdout, stderr } = await spawnAgyFile(resolveAgyCliPath(), args, {
       cwd: projectDirectory,
       timeout: timeoutMs ?? resolveTimeoutMs(),
       maxBuffer: MAX_BUFFER_BYTES,
@@ -470,7 +470,7 @@ export async function runAgyAgentPrompt(options: AgyAgentRunOptions): Promise<Ag
 
   activeRun = true;
   try {
-    if (process.env.AGY_WORKER_MODE?.trim() === "systemd") {
+    if (usesDurableWorker()) {
       const modelName = resolveAgyModelName(options.model);
       return await runDurableAgyJob({
         ...options,

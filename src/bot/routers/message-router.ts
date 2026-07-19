@@ -13,9 +13,11 @@ import { showModelSelectionMenu } from "../menus/model-selection-menu.js";
 import { showVariantSelectionMenu } from "../menus/variant-selection-menu.js";
 import {
   AGENT_MODE_BUTTON_TEXT_PATTERN,
+  ENGINE_MODE_BUTTON_TEXT_PATTERN,
   MODEL_BUTTON_TEXT_PATTERN,
   VARIANT_BUTTON_TEXT_PATTERN,
 } from "../message-patterns.js";
+import { modeCommand } from "../commands/mode-command.js";
 import { handleDocumentMessage } from "../handlers/document-handler.js";
 import { createMediaGroupAttachmentMiddleware } from "../handlers/media-group-handler.js";
 import { handlePhotoMessage } from "../handlers/photo-handler.js";
@@ -44,6 +46,12 @@ async function blockMenuWhileInteractionActive(ctx: Context): Promise<boolean> {
 
 export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps): void {
   bot.on("message:text", unknownCommandMiddleware);
+
+  bot.hears(ENGINE_MODE_BUTTON_TEXT_PATTERN, async (ctx) => {
+    if (!(await blockMenuWhileInteractionActive(ctx))) {
+      await modeCommand(ctx);
+    }
+  });
 
   bot.hears(AGENT_MODE_BUTTON_TEXT_PATTERN, async (ctx) => {
     logger.debug(`[Bot] Agent button pressed: ${ctx.message?.text}`);

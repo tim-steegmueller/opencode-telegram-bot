@@ -147,8 +147,10 @@ export const ru: I18nDictionary = {
   "mode.prompt": "Choose assistant mode:",
   "mode.option.opencode": "OpenCode agent",
   "mode.option.agy": "AGY agent",
+  "mode.option.cursor": "Cursor agent",
   "mode.selected.opencode": "OpenCode mode selected.",
   "mode.selected.agy": "AGY agent mode selected.",
+  "mode.selected.cursor": "Cursor agent mode selected.",
 
   "agy.started": "🚀 AGY agent started with {model}...",
   "agy.running": "⏳ AGY is still running with {model} ({seconds}s)...",
@@ -159,6 +161,12 @@ export const ru: I18nDictionary = {
     "⚠️ AGY mode currently supports text prompts only. Switch to OpenCode mode for files or images.",
   "agy.response": "AGY ({model}) finished:\n\n{output}",
   "agy.error": "🔴 AGY agent failed:\n\n{error}",
+  "cursor.started": "🚀 Cursor agent started with {model}...",
+  "cursor.finished_status": "✅ Cursor agent finished.",
+  "cursor.failed_status": "🔴 Cursor agent failed.",
+  "cursor.busy":
+    "⏳ Cursor agent is already running. Wait for completion before sending another task.",
+  "cursor.error": "🔴 Cursor agent failed:\n\n{error}",
 
   "projects.empty":
     "📭 Проектов нет.\n\nОткройте директорию в OpenCode и создайте хотя бы одну сессию, после этого она появится здесь.",

@@ -4,6 +4,7 @@ import path from "node:path";
 import { formatFileSize } from "../../app/services/file-download-service.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../i18n/index.js";
+import { isWithinProjectRootSafe } from "../../app/services/file-browser-service.js";
 
 const MAX_FILE_SIZE_MB = 50;
 
@@ -22,18 +23,29 @@ export async function sendDownloadedFile(
   options?: { announce?: boolean },
 ): Promise<boolean> {
   try {
+    if (!(await isWithinProjectRootSafe(filePath))) {
+      await ctx.reply(`❌ ${t("ls.access_denied")}`);
+      return false;
+    }
+
     const stat = await fs.stat(filePath).catch(() => null);
     if (!stat) {
-      await ctx.reply(`❌ ${t("commands.download.not_found")}: <code>${escapeHtml(filePath)}</code>`, {
-        parse_mode: "HTML",
-      });
+      await ctx.reply(
+        `❌ ${t("commands.download.not_found")}: <code>${escapeHtml(filePath)}</code>`,
+        {
+          parse_mode: "HTML",
+        },
+      );
       return false;
     }
 
     if (!stat.isFile()) {
-      await ctx.reply(`❌ ${t("commands.download.not_file")}: <code>${escapeHtml(filePath)}</code>`, {
-        parse_mode: "HTML",
-      });
+      await ctx.reply(
+        `❌ ${t("commands.download.not_file")}: <code>${escapeHtml(filePath)}</code>`,
+        {
+          parse_mode: "HTML",
+        },
+      );
       return false;
     }
 
@@ -47,9 +59,12 @@ export async function sendDownloadedFile(
     const fileName = path.basename(filePath);
 
     if (options?.announce !== false) {
-      await ctx.reply(`📥 ${t("commands.download.downloading")} <code>${escapeHtml(fileName)}</code>`, {
-        parse_mode: "HTML",
-      });
+      await ctx.reply(
+        `📥 ${t("commands.download.downloading")} <code>${escapeHtml(fileName)}</code>`,
+        {
+          parse_mode: "HTML",
+        },
+      );
     }
 
     const fileContent = await fs.readFile(filePath);

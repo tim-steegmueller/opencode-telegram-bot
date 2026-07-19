@@ -222,7 +222,7 @@ export class MediaGroupAttachmentHandler {
       const processPrompt = this.deps.processPrompt ?? processUserPrompt;
       const assistantMode = (this.deps.getAssistantMode ?? getAssistantMode)();
 
-      if (assistantMode === "agy" && !promptText.trim() && fileParts.length > 0) {
+      if (assistantMode !== "opencode" && !promptText.trim() && fileParts.length > 0) {
         storePendingAttachments(replyCtx.chat!.id, fileParts);
         await replyCtx.reply(
           t("bot.photo_waiting_for_prompt", { minutes: PENDING_ATTACHMENT_TTL_MINUTES }),
@@ -319,7 +319,7 @@ export class MediaGroupAttachmentHandler {
       return { reason: `unsupported_document_mime:${mimeType || "unknown"}` };
     }
 
-    if (assistantMode !== "agy" && (needsImageSupport || needsPdfSupport)) {
+    if (assistantMode === "opencode" && (needsImageSupport || needsPdfSupport)) {
       const getCapabilities = this.deps.getModelCapabilities ?? getModelCapabilities;
       const capabilities = await getCapabilities(storedModel.providerID, storedModel.modelID);
 

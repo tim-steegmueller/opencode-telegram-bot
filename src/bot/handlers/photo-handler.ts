@@ -50,12 +50,13 @@ export async function handlePhotoMessage(ctx: Context, deps: PhotoHandlerDeps): 
 
   try {
     const storedModel = getStored();
+    const assistantMode = getMode();
     const capabilities =
-      getMode() === "agy"
+      assistantMode !== "opencode"
         ? null
         : await getCapabilities(storedModel.providerID, storedModel.modelID);
 
-    if (getMode() !== "agy" && !supportsInput(capabilities, "image")) {
+    if (assistantMode === "opencode" && !supportsInput(capabilities, "image")) {
       logger.warn(
         `[Bot] Model ${storedModel.providerID}/${storedModel.modelID} doesn't support image input`,
       );

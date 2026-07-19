@@ -124,7 +124,7 @@ export function clearCurrentModel(): void {
   void writeSettingsFile(currentSettings);
 }
 
-export type AssistantMode = "opencode" | "agy";
+export type AssistantMode = "opencode" | "agy" | "cursor";
 
 export function getAssistantMode(): AssistantMode {
   return currentSettings.assistantMode ?? "opencode";

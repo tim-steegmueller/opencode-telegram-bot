@@ -10,6 +10,11 @@ import type { ModelInfo } from "../types/model.js";
 import { t } from "../../i18n/index.js";
 import { logger } from "../../utils/logger.js";
 import { chunkTelegramRenderedBlocks } from "../../bot/render/chunker.js";
+import {
+  resolveAgyCliPath,
+  resolveCursorAgentPath,
+  resolveTmuxPath,
+} from "../../runtime/executable-paths.js";
 
 const JOB_POLL_INTERVAL_MS = 1_000;
 const UNIT_INACTIVE_GRACE_POLLS = 3;
@@ -30,6 +35,8 @@ export interface DurableAgyJobOptions {
   timeoutMs: number;
   notification?: AgyJobNotification;
   onProgress?: (line: string) => void;
+  backend?: AgentJobBackend;
+  agentName?: string;
 }
 
 export interface DurableAgyJobResult {
@@ -46,14 +53,20 @@ export interface AgyJobWorkerRequest {
   attachments: FilePartInput[];
   accountHome?: string;
   timeoutMs: number;
+  backend?: AgentJobBackend;
 }
 
 type AgyJobStatus = "starting" | "running" | "completed" | "failed" | "aborted";
+export type DurableAgyWorkerMode = "systemd" | "tmux";
+export type AgentJobBackend = "agy" | "cursor";
 
 export interface AgyJobRecord {
   version: 1;
   jobId: string;
   unitName: string;
+  workerMode?: DurableAgyWorkerMode;
+  backend?: AgentJobBackend;
+  agentName?: string;
   status: AgyJobStatus;
   startedAt: string;
   completedAt?: string;
@@ -173,11 +186,52 @@ async function launchSystemdJob(record: AgyJobRecord, requestPath: string): Prom
     "--property=TimeoutStopSec=30",
     `--setenv=PATH=${process.env.PATH ?? ""}`,
     `--setenv=AGY_JOBS_DIR=${getJobsDirectory()}`,
-    `--setenv=AGY_CLI_PATH=${process.env.AGY_CLI_PATH?.trim() || "/home/tim/.local/bin/agy"}`,
+    `--setenv=AGY_CLI_PATH=${resolveAgyCliPath()}`,
+    `--setenv=CURSOR_AGENT_PATH=${resolveCursorAgentPath()}`,
     process.execPath,
     workerPath,
     requestPath,
   ]);
+}
+
+function quoteShellArgument(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+async function launchTmuxJob(record: AgyJobRecord, requestPath: string): Promise<void> {
+  const workerPath = fileURLToPath(new URL("./agy-job-worker.js", import.meta.url));
+  const workerCommand = [process.execPath, workerPath, requestPath]
+    .map(quoteShellArgument)
+    .join(" ");
+
+  await runCommand(resolveTmuxPath(), [
+    "new-session",
+    "-d",
+    "-s",
+    record.unitName,
+    "-e",
+    `PATH=${process.env.PATH ?? ""}`,
+    "-e",
+    `AGY_JOBS_DIR=${getJobsDirectory()}`,
+    "-e",
+    `AGY_CLI_PATH=${resolveAgyCliPath()}`,
+    "-e",
+    `CURSOR_AGENT_PATH=${resolveCursorAgentPath()}`,
+    workerCommand,
+  ]);
+}
+
+function resolveWorkerMode(): DurableAgyWorkerMode {
+  return process.env.AGY_WORKER_MODE?.trim() === "tmux" ? "tmux" : "systemd";
+}
+
+async function launchWorker(record: AgyJobRecord, requestPath: string): Promise<void> {
+  if (record.workerMode === "tmux") {
+    await launchTmuxJob(record, requestPath);
+    return;
+  }
+
+  await launchSystemdJob(record, requestPath);
 }
 
 async function isUnitActive(unitName: string): Promise<boolean> {
@@ -188,6 +242,29 @@ async function isUnitActive(unitName: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function isWorkerActive(record: AgyJobRecord): Promise<boolean> {
+  if (record.workerMode === "tmux") {
+    try {
+      await runCommand(resolveTmuxPath(), ["has-session", "-t", `=${record.unitName}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  return isUnitActive(record.unitName);
+}
+
+async function stopWorker(record: AgyJobRecord): Promise<void> {
+  if (record.workerMode === "tmux") {
+    await runCommand(resolveTmuxPath(), ["kill-session", "-t", `=${record.unitName}`]);
+    return;
+  }
+
+  const systemctlPath = process.env.SYSTEMCTL_PATH?.trim() || "/usr/bin/systemctl";
+  await runCommand(systemctlPath, ["--user", "stop", record.unitName]);
 }
 
 async function markJobFailed(record: AgyJobRecord, error: unknown): Promise<AgyJobRecord> {
@@ -233,14 +310,15 @@ async function waitForAgyJob(
       throw new DurableAgyJobAbortedError(jobId);
     }
 
-    if (await isUnitActive(record.unitName)) {
+    if (await isWorkerActive(record)) {
       inactivePolls = 0;
     } else {
       inactivePolls += 1;
       if (inactivePolls >= UNIT_INACTIVE_GRACE_POLLS) {
+        await rm(getRequestPath(jobId), { force: true });
         const failedRecord = await markJobFailed(
           record,
-          new Error(`AGY worker unit ${record.unitName} stopped without a result`),
+          new Error(`AGY worker ${record.unitName} stopped without a result`),
         );
         throw new DurableAgyJobError(jobId, failedRecord.error || "AGY worker stopped");
       }
@@ -256,10 +334,14 @@ export async function runDurableAgyJob(
   await ensureJobsDirectory();
   const jobId = randomUUID();
   const unitName = `tg-agy-${jobId.replaceAll("-", "")}`;
+  const workerMode = resolveWorkerMode();
   const record: AgyJobRecord = {
     version: 1,
     jobId,
     unitName,
+    workerMode,
+    backend: options.backend ?? "agy",
+    agentName: options.agentName ?? "AGY",
     status: "starting",
     startedAt: new Date().toISOString(),
     modelName: options.modelName,
@@ -275,6 +357,7 @@ export async function runDurableAgyJob(
     attachments: options.attachments ?? [],
     accountHome: options.accountHome,
     timeoutMs: options.timeoutMs,
+    backend: options.backend ?? "agy",
   };
   const requestPath = getRequestPath(jobId);
 
@@ -283,7 +366,7 @@ export async function runDurableAgyJob(
   activeDurableJobId = jobId;
 
   try {
-    await launchSystemdJob(record, requestPath);
+    await launchWorker(record, requestPath);
   } catch (error) {
     await rm(requestPath, { force: true });
     await markJobFailed(record, error);
@@ -293,7 +376,7 @@ export async function runDurableAgyJob(
     throw new DurableAgyJobError(jobId, error instanceof Error ? error.message : String(error));
   }
 
-  logger.info(`[AGY] Durable worker launched job=${jobId} unit=${unitName}`);
+  logger.info(`[AGY] Durable worker launched job=${jobId} mode=${workerMode} unit=${unitName}`);
   try {
     return await waitForAgyJob(jobId, options.onProgress);
   } finally {
@@ -301,6 +384,12 @@ export async function runDurableAgyJob(
       activeDurableJobId = null;
     }
   }
+}
+
+export async function runDurableCursorJob(
+  options: Omit<DurableAgyJobOptions, "backend" | "agentName">,
+): Promise<DurableAgyJobResult> {
+  return runDurableAgyJob({ ...options, backend: "cursor", agentName: "Cursor" });
 }
 
 export async function abortActiveAgyJob(): Promise<boolean> {
@@ -314,8 +403,7 @@ export async function abortActiveAgyJob(): Promise<boolean> {
     return false;
   }
 
-  const systemctlPath = process.env.SYSTEMCTL_PATH?.trim() || "/usr/bin/systemctl";
-  await runCommand(systemctlPath, ["--user", "stop", record.unitName]);
+  await stopWorker(record);
   const latestRecord = await readAgyJobRecord(jobId);
   if (latestRecord.status === "completed" || latestRecord.status === "failed") {
     return false;
@@ -366,6 +454,31 @@ export async function sendAgyResult(
   }
 }
 
+export async function sendAgentResult(
+  bot: Bot<Context>,
+  chatId: number,
+  agentName: string,
+  modelName: string,
+  output: string,
+): Promise<void> {
+  const message = `${agentName} (${modelName}) finished:\n\n${output}`;
+  const parts = chunkTelegramRenderedBlocks(
+    [
+      {
+        blockType: "plain",
+        mode: "plain",
+        text: message,
+        fallbackText: message,
+        source: "plain",
+      },
+    ],
+    { maxPartLength: 4096 },
+  );
+  for (const part of parts) {
+    await bot.api.sendMessage(chatId, part.text);
+  }
+}
+
 function renderRecoveredProgress(record: AgyJobRecord): string {
   const seconds = Math.max(
     1,
@@ -388,12 +501,12 @@ async function notifyRecoveredJob(bot: Bot<Context>, record: AgyJobRecord): Prom
     await bot.api
       .editMessageText(chatId, progressMessageId, t("agy.finished_status"))
       .catch((error) => logger.debug("[AGY] Failed to finalize recovered progress message", error));
-    await sendAgyResult(
-      bot,
-      chatId,
-      record.modelName,
-      record.output || "(AGY finished without output.)",
-    );
+    const output = record.output || `(${record.agentName ?? "AGY"} finished without output.)`;
+    if (record.backend === "cursor") {
+      await sendAgentResult(bot, chatId, record.agentName ?? "Cursor", record.modelName, output);
+    } else {
+      await sendAgyResult(bot, chatId, record.modelName, output);
+    }
     await markAgyJobNotified(record.jobId);
     return;
   }
@@ -474,7 +587,7 @@ export async function recoverAgyJobs(bot: Bot<Context>): Promise<void> {
       continue;
     }
 
-    if (await isUnitActive(record.unitName)) {
+    if (await isWorkerActive(record)) {
       logger.info(`[AGY] Reattaching durable job=${record.jobId} unit=${record.unitName}`);
       void resumeAgyJob(bot, record).catch((error) => {
         recoveredJobIds.delete(record.jobId);
@@ -483,9 +596,10 @@ export async function recoverAgyJobs(bot: Bot<Context>): Promise<void> {
       continue;
     }
 
+    await rm(getRequestPath(record.jobId), { force: true });
     const failedRecord = await markJobFailed(
       record,
-      new Error(`AGY worker unit ${record.unitName} is no longer active`),
+      new Error(`AGY worker ${record.unitName} is no longer active`),
     );
     await notifyRecoveredJob(bot, failedRecord).catch((error) => {
       logger.warn(`[AGY] Failed to notify orphaned job=${record.jobId}`, error);

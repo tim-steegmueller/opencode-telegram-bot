@@ -93,12 +93,13 @@ export async function handleDocumentMessage(
 
     if (mimeType.startsWith("image/")) {
       const storedModel = getStored();
+      const assistantMode = getMode();
       const capabilities =
-        getMode() === "agy"
+        assistantMode !== "opencode"
           ? null
           : await getCapabilities(storedModel.providerID, storedModel.modelID);
 
-      if (getMode() !== "agy" && !supportsInput(capabilities, "image")) {
+      if (assistantMode === "opencode" && !supportsInput(capabilities, "image")) {
         logger.warn(
           `[Document] Model ${storedModel.providerID}/${storedModel.modelID} doesn't support image input`,
         );
@@ -132,12 +133,13 @@ export async function handleDocumentMessage(
 
     if (mimeType === "application/pdf") {
       const storedModel = getStored();
+      const assistantMode = getMode();
       const capabilities =
-        getMode() === "agy"
+        assistantMode !== "opencode"
           ? null
           : await getCapabilities(storedModel.providerID, storedModel.modelID);
 
-      if (getMode() !== "agy" && !supportsInput(capabilities, "pdf")) {
+      if (assistantMode === "opencode" && !supportsInput(capabilities, "pdf")) {
         logger.warn(
           `[Document] Model ${storedModel.providerID}/${storedModel.modelID} doesn't support PDF input`,
         );

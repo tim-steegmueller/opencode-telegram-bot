@@ -237,6 +237,7 @@ When installed via npm, the configuration wizard handles the initial setup. The 
 | `RESPONSE_STREAMING`                       | Stream assistant replies while they are generated across one or more Telegram messages                                |    No    | `true`                   |
 | `MESSAGE_FORMAT_MODE`                      | Assistant reply formatting mode: `markdown` (Telegram MarkdownV2) or `raw`                                            |    No    | `markdown`               |
 | `CODE_FILE_MAX_SIZE_KB`                    | Max file size (KB) to send as document                                                                                |    No    | `100`                    |
+| `STT_COMMAND`                              | Local transcription executable; receives an audio path and writes text to stdout (takes precedence over API)         |    No    | —                        |
 | `STT_API_URL`                              | Whisper-compatible API base URL (enables voice/audio transcription)                                                   |    No    | —                        |
 | `STT_API_KEY`                              | API key for your STT provider                                                                                         |    No    | —                        |
 | `STT_MODEL`                                | STT model name passed to `/audio/transcriptions`                                                                      |    No    | `whisper-large-v3-turbo` |
@@ -305,14 +306,20 @@ This affects direct Bot API calls and Telegram file downloads. It is not a repla
 
 ### Voice and Audio Transcription (Optional)
 
-If `STT_API_URL` and `STT_API_KEY` are set, the bot will:
+If `STT_COMMAND` or both `STT_API_URL` and `STT_API_KEY` are set, the bot will:
 
 1. Accept `voice` and `audio` Telegram messages
-2. Transcribe them via `POST {STT_API_URL}/audio/transcriptions`
+2. Transcribe them with the local command or via `POST {STT_API_URL}/audio/transcriptions`
 3. Show recognized text in chat
 4. Send the recognized text to OpenCode as a normal prompt
 
 If `STT_NOTE_PROMPT` is set to a non-empty value other than `false` or `0`, the bot prepends `[Note: ...]` to the transcription before sending it to the LLM. The recognized text shown in Telegram stays unchanged.
+
+For a local command, set an absolute executable path. The command receives one temporary audio file path, must write only the transcription to stdout, and may write diagnostics to stderr:
+
+```env
+STT_COMMAND=/absolute/path/to/transcribe-audio
+```
 
 If TTS credentials are configured, you can choose spoken reply behavior with `/tts`: `off` disables audio replies, `all` sends audio for every assistant reply, and `auto` sends audio only after voice/audio prompts. The preference is stored in `settings.json` and persists across restarts.
 

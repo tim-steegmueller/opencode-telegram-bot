@@ -11,6 +11,7 @@ import { clearPromptResponseMode } from "../handlers/prompt.js";
 import { markUserAbortRequested } from "../../app/managers/abort-suppression-manager.js";
 import { getAssistantMode } from "../../app/stores/settings-store.js";
 import { isAgyAgentRunActive } from "../../app/services/agy-agent-service.js";
+import { isCursorAgentRunActive } from "../../app/services/cursor-agent-service.js";
 import { abortActiveAgyJob } from "../../app/services/agy-job-service.js";
 
 type SessionState = "idle" | "busy" | "not-found";
@@ -80,7 +81,11 @@ export async function abortCurrentOperation(
   try {
     abortLocalStreaming();
 
-    if (getAssistantMode() === "agy" && isAgyAgentRunActive()) {
+    const assistantMode = getAssistantMode();
+    const externalAgentActive =
+      (assistantMode === "agy" && isAgyAgentRunActive()) ||
+      (assistantMode === "cursor" && isCursorAgentRunActive());
+    if (externalAgentActive) {
       if (!notifyUser) {
         await abortActiveAgyJob();
         return;

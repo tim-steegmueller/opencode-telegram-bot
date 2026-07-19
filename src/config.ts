@@ -198,6 +198,7 @@ export const config = {
     browserRoots: getEnvVar("OPEN_BROWSER_ROOTS", false),
   },
   stt: {
+    command: getEnvVar("STT_COMMAND", false),
     apiUrl: getEnvVar("STT_API_URL", false),
     apiKey: getEnvVar("STT_API_KEY", false),
     model: getEnvVar("STT_MODEL", false) || "whisper-large-v3-turbo",

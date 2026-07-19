@@ -1,9 +1,6 @@
 import { Context, InlineKeyboard } from "grammy";
 import { getStoredAgent, resolveProjectAgent } from "../../app/services/agent-selection-service.js";
-import {
-  searchModels,
-  selectModel,
-} from "../../app/services/model-selection-service.js";
+import { searchModels, selectModel } from "../../app/services/model-selection-service.js";
 import { formatVariantForButton } from "../../app/services/variant-selection-service.js";
 import { formatModelForDisplay } from "../../app/types/model.js";
 import type { ModelInfo } from "../../app/types/model.js";
@@ -19,6 +16,8 @@ import {
   MODEL_SEARCH_CALLBACK,
   MODEL_SEARCH_CANCEL_CALLBACK,
 } from "../menus/model-selection-menu.js";
+import { getAssistantMode } from "../../app/stores/settings-store.js";
+import { searchCursorModels } from "../../app/services/cursor-agent-service.js";
 
 interface ModelSearchMetadata {
   flow: string;
@@ -49,21 +48,29 @@ function parseModelSearchMetadata(): ModelSearchMetadata | null {
  * Shared logic for applying a model selection and updating UI.
  * Used by both the regular inline menu flow and the search results flow.
  */
-async function applyModelSelectionAndNotify(
-  ctx: Context,
-  modelInfo: ModelInfo,
-): Promise<void> {
+async function applyModelSelectionAndNotify(ctx: Context, modelInfo: ModelInfo): Promise<void> {
+  const assistantMode = getAssistantMode();
+  const isCompatible =
+    (assistantMode === "agy" && modelInfo.providerID === "antigravity") ||
+    (assistantMode === "cursor" && modelInfo.providerID === "cursor") ||
+    (assistantMode === "opencode" && modelInfo.providerID !== "cursor");
+  if (!isCompatible) {
+    await ctx.answerCallbackQuery({ text: t("model.change_error_callback") }).catch(() => {});
+    return;
+  }
+
   if (ctx.chat) {
     keyboardManager.initialize(ctx.api, ctx.chat.id);
   }
 
   selectModel(modelInfo);
   keyboardManager.updateModel(modelInfo);
-  if (modelInfo.providerID !== "antigravity") {
+  if (assistantMode === "opencode") {
     await pinnedMessageManager.refreshContextLimit();
   }
 
-  const currentAgent = await resolveProjectAgent(getStoredAgent());
+  const currentAgent =
+    assistantMode === "opencode" ? await resolveProjectAgent(getStoredAgent()) : getStoredAgent();
   const contextInfo =
     pinnedMessageManager.getContextInfo() ??
     (pinnedMessageManager.getContextLimit() > 0
@@ -208,7 +215,8 @@ export async function handleModelSearchTextInput(ctx: Context): Promise<boolean>
   logger.debug(`[ModelHandler] Model search query: "${text}"`);
 
   try {
-    const results = await searchModels(text);
+    const results =
+      getAssistantMode() === "cursor" ? await searchCursorModels(text) : await searchModels(text);
 
     const keyboard = new InlineKeyboard();
 

@@ -155,8 +155,10 @@ export const de: I18nDictionary = {
   "mode.prompt": "Assistentenmodus auswählen:",
   "mode.option.opencode": "OpenCode-Agent",
   "mode.option.agy": "AGY-Agent",
+  "mode.option.cursor": "Cursor-Agent",
   "mode.selected.opencode": "OpenCode-Modus ausgewählt.",
   "mode.selected.agy": "AGY-Agentenmodus ausgewählt.",
+  "mode.selected.cursor": "Cursor-Agentenmodus ausgewählt.",
 
   "agy.started": "🚀 AGY-Agent mit {model} gestartet...",
   "agy.running": "⏳ AGY läuft noch mit {model} ({seconds}s)...",
@@ -168,6 +170,13 @@ export const de: I18nDictionary = {
     "⚠️ Der AGY-Modus unterstützt aktuell nur Text-Prompts. Für Dateien oder Bilder bitte in den OpenCode-Modus wechseln.",
   "agy.response": "AGY ({model}) ist fertig:\n\n{output}",
   "agy.error": "🔴 AGY-Agent fehlgeschlagen:\n\n{error}",
+
+  "cursor.started": "🚀 Cursor-Agent mit {model} gestartet...",
+  "cursor.finished_status": "✅ Cursor-Agent abgeschlossen.",
+  "cursor.failed_status": "🔴 Cursor-Agent fehlgeschlagen.",
+  "cursor.busy":
+    "⏳ Der Cursor-Agent läuft bereits. Warte auf den Abschluss, bevor du die nächste Aufgabe sendest.",
+  "cursor.error": "🔴 Cursor-Agent fehlgeschlagen:\n\n{error}",
 
   "projects.empty":
     "📭 Keine Projekte gefunden.\n\nÖffne ein Verzeichnis in OpenCode und erstelle mindestens eine Sitzung, dann erscheint es hier.",

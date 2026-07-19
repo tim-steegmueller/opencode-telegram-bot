@@ -41,6 +41,8 @@ const mocked = vi.hoisted(() => ({
   runAgyAgentPromptMock: vi.fn(),
   isAgyAgentRunActiveMock: vi.fn(),
   resolveSelectedAgyAccountMock: vi.fn(),
+  runCursorAgentPromptMock: vi.fn(),
+  isCursorAgentRunActiveMock: vi.fn(),
 }));
 
 vi.mock("../../../src/opencode/client.js", () => ({
@@ -88,6 +90,11 @@ vi.mock("../../../src/app/services/agy-agent-service.js", () => ({
 
 vi.mock("../../../src/app/services/agy-account-service.js", () => ({
   resolveSelectedAgyAccount: mocked.resolveSelectedAgyAccountMock,
+}));
+
+vi.mock("../../../src/app/services/cursor-agent-service.js", () => ({
+  isCursorAgentRunActive: mocked.isCursorAgentRunActiveMock,
+  runCursorAgentPrompt: mocked.runCursorAgentPromptMock,
 }));
 
 vi.mock("../../../src/bot/pinned/pinned-message-manager.js", () => ({
@@ -230,9 +237,12 @@ describe("bot/handlers/prompt", () => {
     mocked.runAgyAgentPromptMock.mockReset();
     mocked.isAgyAgentRunActiveMock.mockReset();
     mocked.resolveSelectedAgyAccountMock.mockReset();
+    mocked.runCursorAgentPromptMock.mockReset();
+    mocked.isCursorAgentRunActiveMock.mockReset();
     mocked.getTtsModeMock.mockReturnValue("off");
     mocked.getAssistantModeMock.mockReturnValue("opencode");
     mocked.isAgyAgentRunActiveMock.mockReturnValue(false);
+    mocked.isCursorAgentRunActiveMock.mockReturnValue(false);
     mocked.resolveSelectedAgyAccountMock.mockResolvedValue({
       alias: "default",
       homeDirectory: "/home/tim",
@@ -241,6 +251,10 @@ describe("bot/handlers/prompt", () => {
     mocked.runAgyAgentPromptMock.mockResolvedValue({
       output: "AGY done",
       modelName: "Gemini 3.5 Flash (High)",
+    });
+    mocked.runCursorAgentPromptMock.mockResolvedValue({
+      output: "Cursor done",
+      modelName: "gpt-5.6-sol-high",
     });
     mocked.attachToSessionMock.mockResolvedValue({
       busy: false,
@@ -372,6 +386,38 @@ describe("bot/handlers/prompt", () => {
     await backgroundTask.task();
     expect(mocked.runAgyAgentPromptMock).toHaveBeenCalledWith(
       expect.objectContaining({ attachments: [attachment] }),
+    );
+  });
+
+  it("dispatches prompts and image attachments through Cursor mode", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("cursor");
+    mocked.storedModel = {
+      providerID: "cursor",
+      modelID: "gpt-5.6-sol-high",
+      variant: "default",
+    };
+    const attachment = {
+      type: "file",
+      mime: "image/png",
+      filename: "screen.png",
+      url: "data:image/png;base64,aW1hZ2U=",
+    } as const;
+
+    const handled = await processUserPrompt(createContext(), "Fix this UI", createDeps(), [
+      attachment,
+    ]);
+
+    expect(handled).toBe(true);
+    expect(mocked.sessionCreateMock).not.toHaveBeenCalled();
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+    expect(mocked.runCursorAgentPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "Fix this UI",
+        projectDirectory: "D:\\Projects\\Repo",
+        model: mocked.storedModel,
+        attachments: [attachment],
+      }),
     );
   });
 

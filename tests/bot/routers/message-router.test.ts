@@ -13,7 +13,7 @@ describe("bot/routers/message-router", () => {
       setTelegramContext: vi.fn(),
     });
 
-    expect(bot.hears).toHaveBeenCalledTimes(4);
+    expect(bot.hears).toHaveBeenCalledTimes(5);
     expect(bot.on.mock.calls.map(([event]) => event)).toEqual([
       "message:text",
       "message:text",

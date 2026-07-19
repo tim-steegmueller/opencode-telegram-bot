@@ -3,8 +3,25 @@ import { setAssistantMode, type AssistantMode } from "../../app/stores/settings-
 import { MODE_CALLBACK_PREFIX } from "../commands/mode-command.js";
 import { t } from "../../i18n/index.js";
 import { logger } from "../../utils/logger.js";
+import { selectModel } from "../../app/services/model-selection-service.js";
+import { config } from "../../config.js";
+import { keyboardManager } from "../keyboards/keyboard-manager.js";
 
-const ASSISTANT_MODES: AssistantMode[] = ["opencode", "agy"];
+const ASSISTANT_MODES: AssistantMode[] = ["opencode", "agy", "cursor"];
+
+function getDefaultModel(mode: AssistantMode) {
+  if (mode === "agy") {
+    return { providerID: "antigravity", modelID: "gemini-3.5-flash-high", variant: "default" };
+  }
+  if (mode === "cursor") {
+    return { providerID: "cursor", modelID: "auto", variant: "default" };
+  }
+  return {
+    providerID: config.opencode.model.provider,
+    modelID: config.opencode.model.modelId,
+    variant: "default",
+  };
+}
 
 export async function handleModeCallback(ctx: Context): Promise<boolean> {
   const callbackQuery = ctx.callbackQuery;
@@ -19,11 +36,23 @@ export async function handleModeCallback(ctx: Context): Promise<boolean> {
     return false;
   }
 
+  const defaultModel = getDefaultModel(mode);
   setAssistantMode(mode);
+  selectModel(defaultModel);
 
   await ctx.answerCallbackQuery({
-    text: mode === "agy" ? t("mode.selected.agy") : t("mode.selected.opencode"),
+    text:
+      mode === "agy"
+        ? t("mode.selected.agy")
+        : mode === "cursor"
+          ? t("mode.selected.cursor")
+          : t("mode.selected.opencode"),
   });
+  if (ctx.chat) {
+    keyboardManager.initialize(ctx.api, ctx.chat.id);
+    keyboardManager.updateModel(defaultModel);
+    await keyboardManager.sendKeyboardUpdate(ctx.chat.id, true);
+  }
 
   try {
     await ctx.deleteMessage();

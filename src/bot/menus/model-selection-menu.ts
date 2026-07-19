@@ -3,15 +3,12 @@ import {
   fetchCurrentModel,
   getModelSelectionLists,
 } from "../../app/services/model-selection-service.js";
-import type {
-  FavoriteModel,
-  ModelInfo,
-  ModelSelectionLists,
-} from "../../app/types/model.js";
+import type { FavoriteModel, ModelInfo, ModelSelectionLists } from "../../app/types/model.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../i18n/index.js";
 import { replyWithInlineMenu } from "./inline-menu.js";
 import { getAssistantMode } from "../../app/stores/settings-store.js";
+import { listCursorModels } from "../../app/services/cursor-agent-service.js";
 
 export const MODEL_SEARCH_CALLBACK = "model:search";
 export const MODEL_SEARCH_AGAIN_CALLBACK = "model:search:again";
@@ -27,6 +24,16 @@ const AGY_MODELS: FavoriteModel[] = [
   { providerID: "antigravity", modelID: "gpt-oss-120b" },
 ];
 
+const CURSOR_FAVORITE_MODEL_IDS = [
+  "auto",
+  "gpt-5.6-sol-high",
+  "claude-opus-4-8-thinking-high",
+  "composer-2.5",
+  "gemini-3.5-flash",
+  "kimi-k2.7-code",
+  "glm-5.2-high",
+];
+
 export function buildAgyModelSelectionMenu(currentModel?: ModelInfo): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const [index, model] of AGY_MODELS.entries()) {
@@ -39,6 +46,25 @@ export function buildAgyModelSelectionMenu(currentModel?: ModelInfo): InlineKeyb
     }
   }
 
+  return keyboard;
+}
+
+export async function buildCursorModelSelectionMenu(
+  currentModel?: ModelInfo,
+): Promise<InlineKeyboard> {
+  const availableModels = await listCursorModels();
+  const availableById = new Map(availableModels.map((model) => [model.modelID, model]));
+  const featured = CURSOR_FAVORITE_MODEL_IDS.map((id) => availableById.get(id)).filter(
+    (model): model is NonNullable<typeof model> => Boolean(model),
+  );
+  const keyboard = new InlineKeyboard().text(t("model.search.button"), MODEL_SEARCH_CALLBACK).row();
+  for (const model of featured) {
+    const isActive =
+      currentModel?.providerID === "cursor" && currentModel.modelID === model.modelID;
+    keyboard
+      .text(`${isActive ? "✅ " : ""}${model.displayName}`, `model:cursor:${model.modelID}`)
+      .row();
+  }
   return keyboard;
 }
 
@@ -107,6 +133,15 @@ export async function showModelSelectionMenu(ctx: Context): Promise<void> {
         menuKind: "model",
         text: t("model.menu.select"),
         keyboard: buildAgyModelSelectionMenu(currentModel),
+      });
+      return;
+    }
+
+    if (getAssistantMode() === "cursor") {
+      await replyWithInlineMenu(ctx, {
+        menuKind: "model",
+        text: t("model.menu.select"),
+        keyboard: await buildCursorModelSelectionMenu(currentModel),
       });
       return;
     }

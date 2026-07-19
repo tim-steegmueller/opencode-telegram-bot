@@ -1,4 +1,4 @@
-import { CommandContext, Context, InlineKeyboard } from "grammy";
+import { Context, InlineKeyboard } from "grammy";
 import { getAssistantMode, type AssistantMode } from "../../app/stores/settings-store.js";
 import { t } from "../../i18n/index.js";
 
@@ -11,10 +11,15 @@ export function buildAssistantModeKeyboard(current: AssistantMode): InlineKeyboa
       `${MODE_CALLBACK_PREFIX}opencode`,
     )
     .row()
-    .text(`${current === "agy" ? "✅ " : ""}${t("mode.option.agy")}`, `${MODE_CALLBACK_PREFIX}agy`);
+    .text(`${current === "agy" ? "✅ " : ""}${t("mode.option.agy")}`, `${MODE_CALLBACK_PREFIX}agy`)
+    .row()
+    .text(
+      `${current === "cursor" ? "✅ " : ""}${t("mode.option.cursor")}`,
+      `${MODE_CALLBACK_PREFIX}cursor`,
+    );
 }
 
-export async function modeCommand(ctx: CommandContext<Context>): Promise<void> {
+export async function modeCommand(ctx: Context): Promise<void> {
   const current = getAssistantMode();
   const keyboard = buildAssistantModeKeyboard(current);
 

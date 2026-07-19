@@ -181,5 +181,28 @@ describe("bot/commands/status-command", () => {
     expect(message).toContain("Account: google-3");
     expect(message).not.toContain("Session:");
     expect(mocked.fetchCurrentAgentMock).not.toHaveBeenCalled();
+    expect(mocked.healthMock).not.toHaveBeenCalled();
+  });
+
+  it("shows Cursor state without requiring the OpenCode server", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("cursor");
+    mocked.healthMock.mockRejectedValue(new Error("OpenCode offline"));
+    mocked.fetchCurrentModelMock.mockReturnValue({
+      providerID: "cursor",
+      modelID: "gpt-5.6-sol-high",
+    });
+    const ctx = {
+      chat: { id: 42, type: "private" },
+      message: { text: "/status" },
+      api: {},
+      reply: vi.fn(),
+    } as unknown as Context;
+
+    await statusCommand(ctx as never);
+
+    const message = mocked.sendBotTextMock.mock.calls[0]?.[0]?.text as string;
+    expect(message).toContain("Agent: Cursor");
+    expect(message).toContain("Model: Cursor / gpt-5.6-sol-high");
+    expect(mocked.healthMock).not.toHaveBeenCalled();
   });
 });

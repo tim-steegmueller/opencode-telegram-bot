@@ -1,4 +1,13 @@
+import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockedProcess = vi.hoisted(() => ({
+  spawnMock: vi.fn(),
+}));
+
+vi.mock("node:child_process", () => ({
+  spawn: mockedProcess.spawnMock,
+}));
 
 vi.mock("../../../src/utils/logger.js", () => ({
   logger: {
@@ -13,6 +22,7 @@ vi.mock("../../../src/utils/logger.js", () => ({
 const mockStt = vi.hoisted(() => ({
   apiUrl: "",
   apiKey: "",
+  command: "",
   model: "whisper-large-v3-turbo",
   language: "",
 }));
@@ -48,6 +58,7 @@ describe("isSttConfigured", () => {
   beforeEach(() => {
     mockStt.apiUrl = "";
     mockStt.apiKey = "";
+    mockStt.command = "";
     mockStt.model = "whisper-large-v3-turbo";
     mockStt.language = "";
   });
@@ -71,12 +82,18 @@ describe("isSttConfigured", () => {
     mockStt.apiKey = "sk-test-key";
     expect(isSttConfigured()).toBe(true);
   });
+
+  it("returns true when a local STT command is set", () => {
+    mockStt.command = "/test/transcribe";
+    expect(isSttConfigured()).toBe(true);
+  });
 });
 
 describe("transcribeAudio", () => {
   beforeEach(() => {
     mockStt.apiUrl = "https://api.groq.com/openai/v1";
     mockStt.apiKey = "sk-test-key";
+    mockStt.command = "";
     mockStt.model = "whisper-large-v3-turbo";
     mockStt.language = "";
     vi.restoreAllMocks();
@@ -174,6 +191,37 @@ describe("transcribeAudio", () => {
     const audioBuffer = Buffer.from("fake-audio-data");
     await expect(transcribeAudio(audioBuffer, "voice.oga")).rejects.toThrow(
       "STT API response does not contain a text field",
+    );
+  });
+
+  it("uses the configured STT command and removes the temporary audio file", async () => {
+    mockStt.apiUrl = "";
+    mockStt.apiKey = "";
+    mockStt.command = "/test/transcribe";
+    let audioPath = "";
+    mockedProcess.spawnMock.mockImplementation((file: string, args: string[]) => {
+      expect(file).toBe("/test/transcribe");
+      audioPath = args[0] as string;
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+      setTimeout(() => {
+        child.stdout.emit("data", Buffer.from("Hallo vom Mac\n"));
+        child.emit("close", 0, null);
+      }, 0);
+      return child;
+    });
+
+    await expect(transcribeAudio(Buffer.from("audio"), "../voice.ogg")).resolves.toEqual({
+      text: "Hallo vom Mac",
+    });
+    await expect(import("node:fs/promises").then(({ access }) => access(audioPath))).rejects.toMatchObject(
+      { code: "ENOENT" },
     );
   });
 });

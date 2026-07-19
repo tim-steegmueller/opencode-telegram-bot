@@ -22,8 +22,9 @@ const mocked = vi.hoisted(() => ({
   clearRunMock: vi.fn(),
   markAttachedSessionIdleMock: vi.fn(),
   clearPromptResponseModeMock: vi.fn(),
-  assistantMode: "opencode" as "opencode" | "agy",
+  assistantMode: "opencode" as "opencode" | "agy" | "cursor",
   isAgyAgentRunActiveMock: vi.fn(),
+  isCursorAgentRunActiveMock: vi.fn(),
   abortActiveAgyJobMock: vi.fn(),
 }));
 
@@ -60,6 +61,10 @@ vi.mock("../../../src/app/stores/settings-store.js", () => ({
 
 vi.mock("../../../src/app/services/agy-agent-service.js", () => ({
   isAgyAgentRunActive: mocked.isAgyAgentRunActiveMock,
+}));
+
+vi.mock("../../../src/app/services/cursor-agent-service.js", () => ({
+  isCursorAgentRunActive: mocked.isCursorAgentRunActiveMock,
 }));
 
 vi.mock("../../../src/app/services/agy-job-service.js", () => ({
@@ -109,6 +114,8 @@ describe("bot/commands/abort", () => {
     mocked.assistantMode = "opencode";
     mocked.isAgyAgentRunActiveMock.mockReset();
     mocked.isAgyAgentRunActiveMock.mockReturnValue(false);
+    mocked.isCursorAgentRunActiveMock.mockReset();
+    mocked.isCursorAgentRunActiveMock.mockReturnValue(false);
     mocked.abortActiveAgyJobMock.mockReset();
     mocked.abortActiveAgyJobMock.mockResolvedValue(true);
     __resetUserAbortErrorSuppressionForTests();
@@ -131,6 +138,21 @@ describe("bot/commands/abort", () => {
     expect(mocked.abortMock).not.toHaveBeenCalled();
     expect(replyMock).toHaveBeenCalledWith(t("stop.in_progress"));
     expect(editMessageTextMock).toHaveBeenCalledWith(777, 88, t("stop.success"));
+  });
+
+  it("stops the active durable Cursor worker instead of an OpenCode session", async () => {
+    mocked.assistantMode = "cursor";
+    mocked.isCursorAgentRunActiveMock.mockReturnValue(true);
+    const ctx = {
+      chat: { id: 777 },
+      reply: vi.fn().mockResolvedValue({ message_id: 88 }),
+      api: { editMessageText: vi.fn().mockResolvedValue(undefined) },
+    } as unknown as Context;
+
+    await abortCommand(ctx as never);
+
+    expect(mocked.abortActiveAgyJobMock).toHaveBeenCalledTimes(1);
+    expect(mocked.abortMock).not.toHaveBeenCalled();
   });
 
   function markSessionBusy(): void {

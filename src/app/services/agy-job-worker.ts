@@ -4,6 +4,7 @@ import {
   writeAgyJobRecord,
 } from "./agy-job-service.js";
 import { executeAgyAgentPrompt } from "./agy-agent-service.js";
+import { executeCursorAgentPrompt } from "./cursor-agent-service.js";
 import path from "node:path";
 
 async function main(): Promise<void> {
@@ -28,15 +29,24 @@ async function main(): Promise<void> {
   };
 
   try {
-    const result = await executeAgyAgentPrompt({
-      prompt: request.prompt,
-      projectDirectory: request.projectDirectory,
-      model: request.model,
-      attachments: request.attachments,
-      accountHome: request.accountHome,
-      timeoutMs: request.timeoutMs,
-      onProgress: queueProgressWrite,
-    });
+    const result =
+      request.backend === "cursor"
+        ? await executeCursorAgentPrompt({
+            prompt: request.prompt,
+            projectDirectory: request.projectDirectory,
+            model: request.model,
+            attachments: request.attachments,
+            timeoutMs: request.timeoutMs,
+          })
+        : await executeAgyAgentPrompt({
+            prompt: request.prompt,
+            projectDirectory: request.projectDirectory,
+            model: request.model,
+            attachments: request.attachments,
+            accountHome: request.accountHome,
+            timeoutMs: request.timeoutMs,
+            onProgress: queueProgressWrite,
+          });
     await writeQueue;
     record = {
       ...record,

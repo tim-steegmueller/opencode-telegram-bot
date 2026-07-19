@@ -32,14 +32,20 @@ describe("app/services/agy-job-service", () => {
     mocked.spawnMock.mockReset();
     jobsDirectory = await mkdtemp(path.join(os.tmpdir(), "agy-job-service-test-"));
     process.env.AGY_JOBS_DIR = jobsDirectory;
+    process.env.AGY_WORKER_MODE = "systemd";
+    process.env.AGY_CLI_PATH = "/test/agy";
     process.env.SYSTEMD_RUN_PATH = "/test/systemd-run";
     process.env.SYSTEMCTL_PATH = "/test/systemctl";
+    process.env.TMUX_PATH = "/test/tmux";
   });
 
   afterEach(async () => {
     delete process.env.AGY_JOBS_DIR;
+    delete process.env.AGY_WORKER_MODE;
+    delete process.env.AGY_CLI_PATH;
     delete process.env.SYSTEMD_RUN_PATH;
     delete process.env.SYSTEMCTL_PATH;
+    delete process.env.TMUX_PATH;
     await rm(jobsDirectory, { recursive: true, force: true });
   });
 
@@ -135,6 +141,101 @@ describe("app/services/agy-job-service", () => {
     );
 
     await markAgyJobNotified("12345678-1234-1234-1234-123456789abc");
+  });
+
+  it("launches a durable tmux worker with the configured environment", async () => {
+    process.env.AGY_WORKER_MODE = "tmux";
+    mocked.spawnMock.mockImplementation((file: string, args: string[]) => {
+      const child = createChild();
+      expect(file).toBe("/test/tmux");
+
+      setTimeout(async () => {
+        if (args[0] === "new-session") {
+          const requestFilename = (await import("node:fs/promises").then(({ readdir }) =>
+            readdir(jobsDirectory),
+          )).find((filename) => filename.endsWith(".request.json"));
+          const requestPath = path.join(jobsDirectory, requestFilename as string);
+          const request = JSON.parse(await readFile(requestPath, "utf8")) as { jobId: string };
+          const recordPath = path.join(jobsDirectory, `${request.jobId}.json`);
+          const record = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown>;
+          await import("../../../src/app/services/agy-job-service.js").then(
+            ({ writeAgyJobRecord }) =>
+              writeAgyJobRecord({
+                ...record,
+                status: "completed",
+                completedAt: new Date().toISOString(),
+                output: "tmux result",
+              }),
+          );
+        }
+        child.emit("close", 0, null);
+      }, 0);
+
+      return child;
+    });
+
+    const { readAgyJobRecord, runDurableAgyJob } = await import(
+      "../../../src/app/services/agy-job-service.js"
+    );
+    const result = await runDurableAgyJob({
+      prompt: "run on macOS",
+      projectDirectory: "/tmp/project",
+      modelName: "Gemini 3.5 Flash (High)",
+      timeoutMs: 60_000,
+    });
+
+    expect(result.output).toBe("tmux result");
+    expect(mocked.spawnMock).toHaveBeenCalledWith(
+      "/test/tmux",
+      expect.arrayContaining([
+        "new-session",
+        "-d",
+        "-e",
+        `AGY_JOBS_DIR=${jobsDirectory}`,
+        "-e",
+        "AGY_CLI_PATH=/test/agy",
+      ]),
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    expect((await readAgyJobRecord(result.jobId)).workerMode).toBe("tmux");
+  });
+
+  it("kills the active tmux session and records a user abort", async () => {
+    process.env.AGY_WORKER_MODE = "tmux";
+    mocked.spawnMock.mockImplementation(() => {
+      const child = createChild();
+      setTimeout(() => child.emit("close", 0, null), 0);
+      return child;
+    });
+    const {
+      abortActiveAgyJob,
+      DurableAgyJobAbortedError,
+      readAgyJobRecord,
+      runDurableAgyJob,
+    } = await import("../../../src/app/services/agy-job-service.js");
+
+    const runPromise = runDurableAgyJob({
+      prompt: "long running macOS task",
+      projectDirectory: "/tmp/project",
+      modelName: "Test model",
+      timeoutMs: 60_000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    await expect(abortActiveAgyJob()).resolves.toBe(true);
+    await expect(runPromise).rejects.toBeInstanceOf(DurableAgyJobAbortedError);
+
+    const records = await Promise.all(
+      (await import("node:fs/promises").then(({ readdir }) => readdir(jobsDirectory)))
+        .filter((filename) => /^[0-9a-f-]+\.json$/.test(filename))
+        .map((filename) => readAgyJobRecord(filename.replace(/\.json$/, ""))),
+    );
+    expect(records[0]?.status).toBe("aborted");
+    expect(mocked.spawnMock).toHaveBeenCalledWith(
+      "/test/tmux",
+      ["kill-session", "-t", `=${records[0]?.unitName}`],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
   });
 
   it("stops the active transient unit and records a user abort", async () => {

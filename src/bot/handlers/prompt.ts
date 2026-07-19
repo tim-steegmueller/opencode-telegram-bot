@@ -47,10 +47,15 @@ import {
 import { resolveSelectedAgyAccount } from "../../app/services/agy-account-service.js";
 import { isAppShuttingDown } from "../../app/services/app-lifecycle-service.js";
 import {
+  isCursorAgentRunActive,
+  runCursorAgentPrompt,
+} from "../../app/services/cursor-agent-service.js";
+import {
   markAgyJobNotified,
   DurableAgyJobAbortedError,
   DurableAgyJobError,
   sendAgyResult,
+  sendAgentResult,
 } from "../../app/services/agy-job-service.js";
 
 /** Module-level references for async callbacks that don't have ctx. */
@@ -170,6 +175,64 @@ export async function processUserPrompt(
   chatIdInstance = ctx.chat!.id;
   const selectedModel = getStoredModel();
   const attachmentParts = [...getPendingAttachments(ctx.chat!.id), ...fileParts];
+
+  if (getAssistantMode() === "cursor") {
+    if (isCursorAgentRunActive()) {
+      await ctx.reply(t("cursor.busy"));
+      return false;
+    }
+
+    const modelName = selectedModel.modelID;
+    const progressMessage = await ctx.reply(t("cursor.started", { model: modelName }));
+    safeBackgroundTask({
+      taskName: "cursor.agent",
+      task: () =>
+        runCursorAgentPrompt({
+          prompt: text,
+          projectDirectory: currentProject.worktree,
+          model: selectedModel,
+          attachments: attachmentParts,
+          notification: {
+            chatId: ctx.chat!.id,
+            progressMessageId: progressMessage.message_id,
+          },
+        }),
+      onSuccess: async (result) => {
+        await bot.api
+          .editMessageText(ctx.chat!.id, progressMessage.message_id, t("cursor.finished_status"))
+          .catch((sendError) => {
+            logger.debug("[Cursor] Failed to mark progress message as finished:", sendError);
+          });
+        await sendAgentResult(bot, ctx.chat!.id, "Cursor", result.modelName, result.output);
+        if (result.jobId) {
+          await markAgyJobNotified(result.jobId);
+        }
+        logger.info(`[Cursor] Agent run completed model="${result.modelName}"`);
+      },
+      onError: async (error) => {
+        if (error instanceof DurableAgyJobAbortedError) {
+          await bot.api
+            .editMessageText(ctx.chat!.id, progressMessage.message_id, t("stop.success"))
+            .catch(() => {});
+          await markAgyJobNotified(error.jobId);
+          return;
+        }
+        const details = formatErrorDetails(error, 3000);
+        await bot.api
+          .editMessageText(ctx.chat!.id, progressMessage.message_id, t("cursor.failed_status"))
+          .catch((sendError) => {
+            logger.debug("[Cursor] Failed to mark progress message as failed:", sendError);
+          });
+        await bot.api.sendMessage(ctx.chat!.id, t("cursor.error", { error: details }));
+        if (error instanceof DurableAgyJobError) {
+          await markAgyJobNotified(error.jobId);
+        }
+      },
+    });
+
+    clearPendingAttachments(ctx.chat!.id);
+    return true;
+  }
 
   if (getAssistantMode() === "agy") {
     if (isAgyAgentRunActive()) {
