@@ -184,6 +184,7 @@ function createDeps(): ProcessPromptDeps {
       api: {
         editMessageText: vi.fn().mockResolvedValue(undefined),
         sendMessage: vi.fn().mockResolvedValue(undefined),
+        sendChatAction: vi.fn().mockResolvedValue(undefined),
       },
     } as unknown as Bot<Context>,
     ensureEventSubscription: vi.fn().mockResolvedValue(undefined),
@@ -403,11 +404,13 @@ describe("bot/handlers/prompt", () => {
       url: "data:image/png;base64,aW1hZ2U=",
     } as const;
 
-    const handled = await processUserPrompt(createContext(), "Fix this UI", createDeps(), [
+    const deps = createDeps();
+    const handled = await processUserPrompt(createContext(), "Fix this UI", deps, [
       attachment,
     ]);
 
     expect(handled).toBe(true);
+    expect(deps.bot.api.sendChatAction).toHaveBeenCalledWith(777, "typing");
     expect(mocked.sessionCreateMock).not.toHaveBeenCalled();
     const backgroundTask = getScheduledBackgroundTask();
     await backgroundTask.task();
@@ -417,6 +420,7 @@ describe("bot/handlers/prompt", () => {
         projectDirectory: "D:\\Projects\\Repo",
         model: mocked.storedModel,
         attachments: [attachment],
+        onProgress: expect.any(Function),
       }),
     );
   });

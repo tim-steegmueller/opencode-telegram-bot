@@ -172,10 +172,11 @@ export const de: I18nDictionary = {
   "agy.error": "🔴 AGY-Agent fehlgeschlagen:\n\n{error}",
 
   "cursor.started": "🚀 Cursor-Agent mit {model} gestartet...",
+  "cursor.running": "⏳ Cursor arbeitet mit {model} weiter ({seconds}s)...",
   "cursor.finished_status": "✅ Cursor-Agent abgeschlossen.",
   "cursor.failed_status": "🔴 Cursor-Agent fehlgeschlagen.",
   "cursor.busy":
-    "⏳ Der Cursor-Agent läuft bereits. Warte auf den Abschluss, bevor du die nächste Aufgabe sendest.",
+    "⏳ Cursor arbeitet noch. Den Fortschritt siehst du in der laufenden Statusnachricht; mit /abort kannst du abbrechen.",
   "cursor.error": "🔴 Cursor-Agent fehlgeschlagen:\n\n{error}",
 
   "projects.empty":

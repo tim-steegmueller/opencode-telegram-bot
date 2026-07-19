@@ -184,6 +184,62 @@ export async function processUserPrompt(
 
     const modelName = selectedModel.modelID;
     const progressMessage = await ctx.reply(t("cursor.started", { model: modelName }));
+    const startedAt = Date.now();
+    const activityLines: string[] = [];
+    let lastStatusText = "";
+    let lastStatusUpdateAt = 0;
+    const appendActivityLines = (baseText: string): string => {
+      if (activityLines.length === 0) {
+        return baseText;
+      }
+      return `${baseText}\n\n${activityLines.map((line) => `• ${line}`).join("\n")}`;
+    };
+    const renderStatusText = (): string => {
+      const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      return appendActivityLines(t("cursor.running", { model: modelName, seconds }));
+    };
+    const updateProgressMessage = (force = false): void => {
+      const now = Date.now();
+      if (!force && now - lastStatusUpdateAt < 3_000) {
+        return;
+      }
+
+      const statusText = renderStatusText();
+      if (statusText === lastStatusText) {
+        return;
+      }
+      lastStatusText = statusText;
+      lastStatusUpdateAt = now;
+      void bot.api
+        .editMessageText(ctx.chat!.id, progressMessage.message_id, statusText)
+        .catch((sendError) => {
+          logger.debug("[Cursor] Failed to update progress message:", sendError);
+        });
+    };
+    const sendTyping = (): void => {
+      void bot.api.sendChatAction(ctx.chat!.id, "typing").catch((sendError) => {
+        logger.debug("[Cursor] Failed to send typing indicator:", sendError);
+      });
+    };
+    let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
+      updateProgressMessage(true);
+    }, 15_000);
+    let typingIndicator: ReturnType<typeof setInterval> | null = setInterval(sendTyping, 4_000);
+    heartbeat.unref?.();
+    typingIndicator.unref?.();
+    sendTyping();
+
+    const stopProgress = (): void => {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      if (typingIndicator) {
+        clearInterval(typingIndicator);
+        typingIndicator = null;
+      }
+    };
+
     safeBackgroundTask({
       taskName: "cursor.agent",
       task: () =>
@@ -196,10 +252,24 @@ export async function processUserPrompt(
             chatId: ctx.chat!.id,
             progressMessageId: progressMessage.message_id,
           },
+          onProgress: (line) => {
+            if (!activityLines.includes(line)) {
+              activityLines.push(line);
+              while (activityLines.length > 8) {
+                activityLines.shift();
+              }
+            }
+            updateProgressMessage();
+          },
         }),
       onSuccess: async (result) => {
+        stopProgress();
         await bot.api
-          .editMessageText(ctx.chat!.id, progressMessage.message_id, t("cursor.finished_status"))
+          .editMessageText(
+            ctx.chat!.id,
+            progressMessage.message_id,
+            appendActivityLines(t("cursor.finished_status")),
+          )
           .catch((sendError) => {
             logger.debug("[Cursor] Failed to mark progress message as finished:", sendError);
           });
@@ -210,6 +280,7 @@ export async function processUserPrompt(
         logger.info(`[Cursor] Agent run completed model="${result.modelName}"`);
       },
       onError: async (error) => {
+        stopProgress();
         if (error instanceof DurableAgyJobAbortedError) {
           await bot.api
             .editMessageText(ctx.chat!.id, progressMessage.message_id, t("stop.success"))
@@ -219,7 +290,11 @@ export async function processUserPrompt(
         }
         const details = formatErrorDetails(error, 3000);
         await bot.api
-          .editMessageText(ctx.chat!.id, progressMessage.message_id, t("cursor.failed_status"))
+          .editMessageText(
+            ctx.chat!.id,
+            progressMessage.message_id,
+            appendActivityLines(t("cursor.failed_status")),
+          )
           .catch((sendError) => {
             logger.debug("[Cursor] Failed to mark progress message as failed:", sendError);
           });

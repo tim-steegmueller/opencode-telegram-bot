@@ -170,10 +170,11 @@ export const es: I18nDictionary = {
   "agy.response": "AGY ({model}) finished:\n\n{output}",
   "agy.error": "🔴 AGY agent failed:\n\n{error}",
   "cursor.started": "🚀 Cursor agent started with {model}...",
+  "cursor.running": "⏳ Cursor is still running with {model} ({seconds}s)...",
   "cursor.finished_status": "✅ Cursor agent finished.",
   "cursor.failed_status": "🔴 Cursor agent failed.",
   "cursor.busy":
-    "⏳ Cursor agent is already running. Wait for completion before sending another task.",
+    "⏳ Cursor is still working. Follow the running status message for progress, or use /abort to stop it.",
   "cursor.error": "🔴 Cursor agent failed:\n\n{error}",
 
   "projects.empty":

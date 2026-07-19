@@ -13,9 +13,11 @@ import {
 } from "./agy-job-service.js";
 
 const DEFAULT_CURSOR_MODEL = "auto";
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const MODEL_DISCOVERY_TIMEOUT_MS = 30_000;
 const MAX_BUFFER_BYTES = 4 * 1024 * 1024;
+const MAX_STREAM_LINE_CHARS = 512 * 1024;
+const MAX_PROGRESS_TEXT_CHARS = 240;
 
 export interface CursorAgentRunOptions {
   prompt: string;
@@ -24,6 +26,7 @@ export interface CursorAgentRunOptions {
   attachments?: FilePartInput[];
   timeoutMs?: number;
   notification?: AgyJobNotification;
+  onProgress?: (line: string) => void;
 }
 
 export interface CursorAgentRunResult {
@@ -104,9 +107,252 @@ function normalizeCursorOutput(output: string): string {
   return trimmed;
 }
 
+type JsonObject = Record<string, unknown>;
+
+function asObject(value: unknown): JsonObject | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonObject)
+    : null;
+}
+
+function readString(object: JsonObject | null, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = object?.[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function compactProgressText(value: string, maxLength = MAX_PROGRESS_TEXT_CHARS): string {
+  const compacted = value.replace(/\s+/g, " ").trim();
+  return compacted.length > maxLength ? `${compacted.slice(0, maxLength - 1)}…` : compacted;
+}
+
+function redactCommand(command: string): string {
+  return command
+    .replace(/(https?:\/\/)[^\s/@]+(?::[^\s/@]*)?@/gi, "$1[redacted]@")
+    .replace(
+      /([?&](?:api_?key|access_?token|token|secret|password)=)[^&\s'"]+/gi,
+      "$1[redacted]",
+    )
+    .replace(
+      /(^|\s)([A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD)[A-Z0-9_]*)=(?:'[^']*'|"[^"]*"|\S+)/gi,
+      "$1$2=[redacted]",
+    )
+    .replace(
+      /(\s--(?:api-?key|token|secret|password|passwd))(?:=|\s+)(?:'[^']*'|"[^"]*"|\S+)/gi,
+      "$1 [redacted]",
+    )
+    .replace(/(authorization:\s*(?:bearer|basic)\s+)\S+/gi, "$1[redacted]");
+}
+
+function summarizeThinking(text: string): string {
+  const normalized = text.toLowerCase();
+  if (/\b(branch|commit|push|pull request|\bpr\b|merge)\b/.test(normalized)) {
+    return "Plant Git- und PR-Schritte";
+  }
+  if (/\b(tests?|verify|verification|validation|lint|quality|checks?)\b/.test(normalized)) {
+    return "Plant Tests und Verifikation";
+  }
+  if (
+    /\b(inspect(?:ing|ed|s)?|read(?:ing|s)?|search(?:ing|ed|es)?|find(?:ing|s)?|analy[sz](?:e|ing|ed)?|review(?:ing|ed|s)?|trac(?:e|ing|ed))\b/.test(
+      normalized,
+    )
+  ) {
+    return "Analysiert Code und relevante Dateien";
+  }
+  if (/\b(edit|implement|change|fix|update|write|refactor)\b/.test(normalized)) {
+    return "Plant die nächsten Änderungen";
+  }
+  return "Plant den nächsten Arbeitsschritt";
+}
+
+function humanizeToolName(value: string): string {
+  const normalized = value.replace(/ToolCall$/, "").replace(/([a-z])([A-Z])/g, "$1 $2");
+  return normalized ? normalized[0]?.toUpperCase() + normalized.slice(1) : "Tool";
+}
+
+function formatCursorToolActivity(event: JsonObject): string | null {
+  const toolCall = asObject(event.tool_call);
+  const entry = Object.entries(toolCall ?? {}).find(
+    ([key, value]) => key.endsWith("ToolCall") && asObject(value),
+  );
+  if (!entry) {
+    return null;
+  }
+
+  const [toolKey, toolValue] = entry;
+  const args = asObject(asObject(toolValue)?.args);
+  const command = readString(args, "command", "commandLine", "cmd");
+  if (command) {
+    return `Terminal: ${compactProgressText(redactCommand(command))}`;
+  }
+
+  const pathValue = readString(
+    args,
+    "path",
+    "filePath",
+    "targetFile",
+    "targetDirectory",
+    "directory",
+    "cwd",
+  );
+  const pattern = readString(args, "globPattern", "pattern", "query", "searchTerm");
+  const normalizedTool = toolKey.toLowerCase();
+  if (normalizedTool.includes("glob") || normalizedTool.includes("search")) {
+    const details = [pattern, pathValue].filter(Boolean).join(" in ");
+    return `Dateien suchen${details ? `: ${compactProgressText(details)}` : ""}`;
+  }
+  if (normalizedTool.includes("read")) {
+    return `Datei lesen${pathValue ? `: ${compactProgressText(pathValue)}` : ""}`;
+  }
+  if (normalizedTool.includes("edit") || normalizedTool.includes("write")) {
+    return `Datei bearbeiten${pathValue ? `: ${compactProgressText(pathValue)}` : ""}`;
+  }
+  if (normalizedTool.includes("delete")) {
+    return `Datei löschen${pathValue ? `: ${compactProgressText(pathValue)}` : ""}`;
+  }
+
+  const details = compactProgressText(pattern || pathValue);
+  return `${humanizeToolName(toolKey)}${details ? `: ${details}` : ""}`;
+}
+
+function readAssistantText(event: JsonObject): string {
+  const message = asObject(event.message);
+  const content = Array.isArray(message?.content) ? message.content : [];
+  return content
+    .map((item) => readString(asObject(item), "text"))
+    .filter(Boolean)
+    .join("");
+}
+
+function createCursorStreamCollector(onProgress?: (line: string) => void): {
+  push: (text: string) => void;
+  finish: () => string;
+} {
+  let pending = "";
+  let discardingOversizedLine = false;
+  let finalResult = "";
+  let finalAssistantText = "";
+  let thinkingText = "";
+  const fallbackLines: string[] = [];
+  const seenProgress = new Set<string>();
+
+  const emitProgress = (line: string): void => {
+    if (!line || seenProgress.has(line)) {
+      return;
+    }
+    seenProgress.add(line);
+    onProgress?.(line);
+  };
+
+  const consumeLine = (line: string): void => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.toLowerCase() === "wal") {
+      return;
+    }
+
+    let event: JsonObject;
+    try {
+      event = JSON.parse(trimmed) as JsonObject;
+    } catch {
+      fallbackLines.push(trimmed);
+      while (fallbackLines.length > 16) {
+        fallbackLines.shift();
+      }
+      return;
+    }
+
+    const type = readString(event, "type");
+    const subtype = readString(event, "subtype");
+    if (type === "system" && subtype === "init") {
+      const model = readString(event, "model");
+      emitProgress(`Cursor verbunden${model ? `: ${model}` : ""}`);
+      return;
+    }
+    if (type === "thinking") {
+      if (subtype === "delta") {
+        const delta = typeof event.text === "string" ? event.text : "";
+        thinkingText = `${thinkingText}${delta}`.slice(-4_096);
+      } else if (subtype === "completed" && thinkingText.trim()) {
+        emitProgress(`Überlegung: ${summarizeThinking(thinkingText)}`);
+        thinkingText = "";
+      }
+      return;
+    }
+    if (type === "assistant") {
+      const text = compactProgressText(readAssistantText(event), 200);
+      if (text && typeof event.model_call_id === "string") {
+        emitProgress(`Zwischenstand: ${text}`);
+      } else if (text && typeof event.timestamp_ms !== "number") {
+        finalAssistantText = readAssistantText(event).trim();
+      }
+      return;
+    }
+    if (type === "tool_call" && subtype === "started") {
+      const activity = formatCursorToolActivity(event);
+      if (activity) {
+        emitProgress(activity);
+      }
+      return;
+    }
+    if (type === "result" && subtype === "success") {
+      finalResult = readString(event, "result");
+    }
+  };
+
+  const push = (text: string): void => {
+    let remaining = text;
+    while (remaining) {
+      if (discardingOversizedLine) {
+        const newline = remaining.indexOf("\n");
+        if (newline === -1) {
+          return;
+        }
+        discardingOversizedLine = false;
+        remaining = remaining.slice(newline + 1);
+        continue;
+      }
+
+      const newline = remaining.indexOf("\n");
+      if (newline === -1) {
+        pending += remaining;
+        if (pending.length > MAX_STREAM_LINE_CHARS) {
+          pending = "";
+          discardingOversizedLine = true;
+        }
+        return;
+      }
+
+      pending += remaining.slice(0, newline);
+      consumeLine(pending);
+      pending = "";
+      remaining = remaining.slice(newline + 1);
+    }
+  };
+
+  return {
+    push,
+    finish: () => {
+      if (pending && !discardingOversizedLine) {
+        consumeLine(pending);
+      }
+      return finalAssistantText || finalResult || normalizeCursorOutput(fallbackLines.join("\n"));
+    },
+  };
+}
+
 function runCursorCommand(
   args: string[],
-  options: { cwd?: string; timeoutMs: number; maxBuffer: number },
+  options: {
+    cwd?: string;
+    timeoutMs: number;
+    maxBuffer: number;
+    captureStdout?: boolean;
+    onStdoutText?: (text: string) => void;
+  },
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const stdout: Buffer[] = [];
@@ -141,7 +387,12 @@ function runCursorCommand(
       target.push(buffer);
     };
 
-    child.stdout?.on("data", (chunk) => append(stdout, chunk));
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      options.onStdoutText?.(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : chunk);
+      if (options.captureStdout !== false) {
+        append(stdout, chunk);
+      }
+    });
     child.stderr?.on("data", (chunk) => append(stderr, chunk));
     child.on("error", (error) => {
       if (!settled) {
@@ -210,10 +461,12 @@ export async function executeCursorAgentPrompt(
   try {
     prepared = await prepareAttachments(options.attachments ?? []);
     const modelName = resolveCursorModel(options.model);
+    const streamCollector = createCursorStreamCollector(options.onProgress);
     const args = [
       "-p",
       "--output-format",
-      "text",
+      "stream-json",
+      "--stream-partial-output",
       "--model",
       modelName,
       "--trust",
@@ -229,13 +482,15 @@ export async function executeCursorAgentPrompt(
     logger.info(
       `[Cursor] Starting agent run model="${modelName}" project=${options.projectDirectory} promptLength=${options.prompt.length}`,
     );
-    const { stdout, stderr } = await runCursorCommand(args, {
+    const { stderr } = await runCursorCommand(args, {
       cwd: options.projectDirectory,
       timeoutMs: options.timeoutMs ?? resolveTimeoutMs(),
       maxBuffer: MAX_BUFFER_BYTES,
+      captureStdout: false,
+      onStdoutText: streamCollector.push,
     });
     return {
-      output: normalizeCursorOutput(stdout) || stderr.trim() || "(Cursor finished without output.)",
+      output: streamCollector.finish() || stderr.trim() || "(Cursor finished without output.)",
       modelName,
     };
   } finally {

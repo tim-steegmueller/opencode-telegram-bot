@@ -233,6 +233,8 @@ When installed via npm, the configuration wizard handles the initial setup. The 
 | `HIDE_THINKING_MESSAGES`                   | Hide `💭 Thinking...` service messages                                                                                |    No    | `false`                  |
 | `HIDE_TOOL_CALL_MESSAGES`                  | Hide tool-call service messages (`💻 bash ...`, `📖 read ...`, etc.)                                                  |    No    | `false`                  |
 | `HIDE_TOOL_FILE_MESSAGES`                  | Hide file edit documents sent as `.txt` attachments (`edit_*.txt`, `write_*.txt`)                                     |    No    | `false`                  |
+| `CURSOR_AGENT_PATH`                        | Path to the authenticated Cursor Agent CLI                                                                            |    No    | `cursor-agent` on `PATH` |
+| `CURSOR_AGENT_TIMEOUT_MS`                  | Hard limit for one Cursor Agent run; progress heartbeats continue while it works                                      |    No    | `3600000`                |
 | `TRACK_BACKGROUND_SESSIONS`                | Track detached/non-current sessions in the current selected project/worktree and send short notifications             |    No    | `true`                   |
 | `RESPONSE_STREAMING`                       | Stream assistant replies while they are generated across one or more Telegram messages                                |    No    | `true`                   |
 | `MESSAGE_FORMAT_MODE`                      | Assistant reply formatting mode: `markdown` (Telegram MarkdownV2) or `raw`                                            |    No    | `markdown`               |

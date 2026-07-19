@@ -37,6 +37,7 @@ async function main(): Promise<void> {
             model: request.model,
             attachments: request.attachments,
             timeoutMs: request.timeoutMs,
+            onProgress: queueProgressWrite,
           })
         : await executeAgyAgentPrompt({
             prompt: request.prompt,

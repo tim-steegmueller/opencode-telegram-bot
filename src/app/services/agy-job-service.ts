@@ -19,6 +19,8 @@ import {
 const JOB_POLL_INTERVAL_MS = 1_000;
 const UNIT_INACTIVE_GRACE_POLLS = 3;
 const MAX_ACTIVITY_LINES = 8;
+const RECOVERED_PROGRESS_INTERVAL_MS = 15_000;
+const CURSOR_TYPING_INTERVAL_MS = 4_000;
 
 export interface AgyJobNotification {
   chatId: number;
@@ -485,7 +487,10 @@ function renderRecoveredProgress(record: AgyJobRecord): string {
     Math.round((Date.now() - new Date(record.startedAt).getTime()) / 1_000),
   );
   const activity = record.activityLines.slice(-MAX_ACTIVITY_LINES);
-  const base = t("agy.running", { model: record.modelName, seconds });
+  const base =
+    record.backend === "cursor"
+      ? t("cursor.running", { model: record.modelName, seconds })
+      : t("agy.running", { model: record.modelName, seconds });
   return activity.length > 0
     ? `${base}\n\n${activity.map((line) => `• ${line}`).join("\n")}`
     : base;
@@ -530,14 +535,41 @@ async function notifyRecoveredJob(bot: Bot<Context>, record: AgyJobRecord): Prom
 
 async function resumeAgyJob(bot: Bot<Context>, record: AgyJobRecord): Promise<void> {
   recoveredJobIds.add(record.jobId);
-  if (record.notification) {
+  let progressHeartbeat: ReturnType<typeof setInterval> | null = null;
+  let typingIndicator: ReturnType<typeof setInterval> | null = null;
+  const refreshProgress = async (): Promise<void> => {
+    if (!record.notification) {
+      return;
+    }
+    const latestRecord = await readAgyJobRecord(record.jobId);
     await bot.api
       .editMessageText(
         record.notification.chatId,
         record.notification.progressMessageId,
-        renderRecoveredProgress(record),
+        renderRecoveredProgress(latestRecord),
       )
       .catch((error) => logger.debug("[AGY] Failed to resume progress message", error));
+  };
+  const sendTyping = (): void => {
+    if (!record.notification || record.backend !== "cursor") {
+      return;
+    }
+    void bot.api.sendChatAction(record.notification.chatId, "typing").catch((error) => {
+      logger.debug("[Cursor] Failed to resume typing indicator", error);
+    });
+  };
+
+  if (record.notification) {
+    await refreshProgress();
+    progressHeartbeat = setInterval(() => {
+      void refreshProgress();
+    }, RECOVERED_PROGRESS_INTERVAL_MS);
+    progressHeartbeat.unref?.();
+    if (record.backend === "cursor") {
+      typingIndicator = setInterval(sendTyping, CURSOR_TYPING_INTERVAL_MS);
+      typingIndicator.unref?.();
+      sendTyping();
+    }
   }
 
   try {
@@ -547,6 +579,12 @@ async function resumeAgyJob(bot: Bot<Context>, record: AgyJobRecord): Promise<vo
   } catch (error) {
     logger.warn(`[AGY] Recovered job failed job=${record.jobId}`, error);
   } finally {
+    if (progressHeartbeat) {
+      clearInterval(progressHeartbeat);
+    }
+    if (typingIndicator) {
+      clearInterval(typingIndicator);
+    }
     recoveredJobIds.delete(record.jobId);
   }
 

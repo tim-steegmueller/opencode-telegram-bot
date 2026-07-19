@@ -26,14 +26,65 @@ describe("app/services/cursor-agent-service", () => {
   beforeEach(() => {
     mocked.spawnMock.mockReset();
     process.env.CURSOR_AGENT_PATH = "/test/cursor-agent";
+    delete process.env.CURSOR_AGENT_TIMEOUT_MS;
     delete process.env.AGY_WORKER_MODE;
+  });
+
+  it("does not cancel a healthy run at the former ten-minute limit", async () => {
+    vi.useFakeTimers();
+    const child = createChild();
+    mocked.spawnMock.mockReturnValue(child);
+    const { runCursorAgentPrompt } =
+      await import("../../../src/app/services/cursor-agent-service.js");
+
+    try {
+      const result = runCursorAgentPrompt({
+        prompt: "Run the long verification",
+        projectDirectory: "/tmp/project",
+      });
+
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 1);
+      expect(child.kill).not.toHaveBeenCalled();
+      child.stdout.emit(
+        "data",
+        Buffer.from('{"type":"result","subtype":"success","result":"Done"}\n'),
+      );
+      child.emit("close", 0, null);
+      await expect(result).resolves.toEqual({ output: "Done", modelName: "auto" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still enforces an explicit hard timeout", async () => {
+    vi.useFakeTimers();
+    const child = createChild();
+    mocked.spawnMock.mockReturnValue(child);
+    const { runCursorAgentPrompt } =
+      await import("../../../src/app/services/cursor-agent-service.js");
+
+    try {
+      const result = runCursorAgentPrompt({
+        prompt: "Run verification",
+        projectDirectory: "/tmp/project",
+        timeoutMs: 1_000,
+      });
+
+      const rejection = expect(result).rejects.toThrow("Cursor Agent timed out after 1000ms");
+      await vi.advanceTimersByTimeAsync(1_000);
+      await rejection;
+      expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("runs Cursor headlessly with the selected model and workspace", async () => {
     mocked.spawnMock.mockImplementation(() => {
       const child = createChild();
       setTimeout(() => {
-        child.stdout.emit("data", Buffer.from("wal\nCursor result\n"));
+        child.stdout.emit("data", Buffer.from('wal\n{"type":"result","subtype":"success","res'));
+        child.stdout.emit("data", Buffer.from('ult":"Cursor result"}\n'));
         child.emit("close", 0, null);
       }, 0);
       return child;
@@ -53,7 +104,8 @@ describe("app/services/cursor-agent-service", () => {
       [
         "-p",
         "--output-format",
-        "text",
+        "stream-json",
+        "--stream-partial-output",
         "--model",
         "gpt-5.6-sol-high",
         "--trust",
@@ -64,6 +116,67 @@ describe("app/services/cursor-agent-service", () => {
       ],
       expect.objectContaining({ cwd: "/tmp/project", stdio: ["ignore", "pipe", "pipe"] }),
     );
+  });
+
+  it("reports sanitized Cursor activity without exposing raw thinking", async () => {
+    mocked.spawnMock.mockImplementation(() => {
+      const child = createChild();
+      setTimeout(() => {
+        const events = [
+          { type: "system", subtype: "init", model: "Auto" },
+          { type: "thinking", subtype: "delta", text: "Inspecting files and planning tests" },
+          { type: "thinking", subtype: "completed" },
+          {
+            type: "assistant",
+            model_call_id: "call-1",
+            message: {
+              content: [{ type: "text", text: "I will inspect the failing test first." }],
+            },
+          },
+          {
+            type: "tool_call",
+            subtype: "started",
+            tool_call: {
+              shellToolCall: {
+                args: {
+                  command:
+                    "API_TOKEN=secret curl 'https://user:pass@example.test/run?access_token=also-secret'",
+                },
+              },
+            },
+          },
+          {
+            type: "assistant",
+            message: { content: [{ type: "text", text: "Final answer only." }] },
+          },
+          { type: "result", subtype: "success", result: "Fixed and verified." },
+        ];
+        child.stdout.emit("data", Buffer.from(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`));
+        child.emit("close", 0, null);
+      }, 0);
+      return child;
+    });
+    const onProgress = vi.fn();
+    const { runCursorAgentPrompt } =
+      await import("../../../src/app/services/cursor-agent-service.js");
+
+    await expect(
+      runCursorAgentPrompt({
+        prompt: "Fix the test",
+        projectDirectory: "/tmp/project",
+        onProgress,
+      }),
+    ).resolves.toEqual({ output: "Final answer only.", modelName: "auto" });
+
+    expect(onProgress.mock.calls.flat()).toEqual([
+      "Cursor verbunden: Auto",
+      "Überlegung: Plant Tests und Verifikation",
+      "Zwischenstand: I will inspect the failing test first.",
+      "Terminal: API_TOKEN=[redacted] curl 'https://[redacted]@example.test/run?access_token=[redacted]'",
+    ]);
+    expect(onProgress.mock.calls.flat().join(" ")).not.toContain("Inspecting files");
+    expect(onProgress.mock.calls.flat().join(" ")).not.toContain("secret");
+    expect(onProgress.mock.calls.flat().join(" ")).not.toContain("user:pass");
   });
 
   it("discovers and searches the authenticated Cursor model catalog", async () => {
