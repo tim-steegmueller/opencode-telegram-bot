@@ -1,5 +1,11 @@
 import { Context } from "grammy";
-import { setAssistantMode, type AssistantMode } from "../../app/stores/settings-store.js";
+import {
+  getAssistantMode,
+  getCurrentModel,
+  setAssistantMode,
+  type AssistantMode,
+} from "../../app/stores/settings-store.js";
+import type { ModelInfo } from "../../app/types/model.js";
 import { MODE_CALLBACK_PREFIX } from "../commands/mode-command.js";
 import { t } from "../../i18n/index.js";
 import { logger } from "../../utils/logger.js";
@@ -23,6 +29,19 @@ function getDefaultModel(mode: AssistantMode) {
   };
 }
 
+function isModelCompatible(mode: AssistantMode, model: ModelInfo | undefined): model is ModelInfo {
+  if (!model?.modelID) {
+    return false;
+  }
+  if (mode === "agy") {
+    return model.providerID === "antigravity";
+  }
+  if (mode === "cursor") {
+    return model.providerID === "cursor";
+  }
+  return model.providerID !== "antigravity" && model.providerID !== "cursor";
+}
+
 export async function handleModeCallback(ctx: Context): Promise<boolean> {
   const callbackQuery = ctx.callbackQuery;
 
@@ -36,9 +55,17 @@ export async function handleModeCallback(ctx: Context): Promise<boolean> {
     return false;
   }
 
-  const defaultModel = getDefaultModel(mode);
-  setAssistantMode(mode);
-  selectModel(defaultModel);
+  const currentMode = getAssistantMode();
+  const currentModel = getCurrentModel();
+  const keepCurrentModel = currentMode === mode && isModelCompatible(mode, currentModel);
+  const selectedModel = keepCurrentModel ? currentModel : getDefaultModel(mode);
+
+  if (currentMode !== mode) {
+    setAssistantMode(mode);
+  }
+  if (!keepCurrentModel) {
+    selectModel(selectedModel);
+  }
 
   await ctx.answerCallbackQuery({
     text:
@@ -50,7 +77,7 @@ export async function handleModeCallback(ctx: Context): Promise<boolean> {
   });
   if (ctx.chat) {
     keyboardManager.initialize(ctx.api, ctx.chat.id);
-    keyboardManager.updateModel(defaultModel);
+    keyboardManager.updateModel(selectedModel);
     await keyboardManager.sendKeyboardUpdate(ctx.chat.id, true);
   }
 

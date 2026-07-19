@@ -6,6 +6,7 @@ import { t } from "../../../src/i18n/index.js";
 
 const mocked = vi.hoisted(() => ({
   getAssistantModeMock: vi.fn(),
+  getCurrentModelMock: vi.fn(),
   setAssistantModeMock: vi.fn(),
   selectModelMock: vi.fn(),
   keyboardInitializeMock: vi.fn(),
@@ -15,6 +16,7 @@ const mocked = vi.hoisted(() => ({
 
 vi.mock("../../../src/app/stores/settings-store.js", () => ({
   getAssistantMode: mocked.getAssistantModeMock,
+  getCurrentModel: mocked.getCurrentModelMock,
   setAssistantMode: mocked.setAssistantModeMock,
 }));
 
@@ -33,6 +35,7 @@ vi.mock("../../../src/bot/keyboards/keyboard-manager.js", () => ({
 describe("bot/commands/mode-command", () => {
   beforeEach(() => {
     mocked.getAssistantModeMock.mockReset();
+    mocked.getCurrentModelMock.mockReset();
     mocked.setAssistantModeMock.mockReset();
     mocked.selectModelMock.mockReset();
     mocked.keyboardInitializeMock.mockReset();
@@ -64,6 +67,8 @@ describe("bot/commands/mode-command", () => {
 describe("bot/callbacks/mode-callback-handler", () => {
   beforeEach(() => {
     mocked.getAssistantModeMock.mockReset();
+    mocked.getAssistantModeMock.mockReturnValue("opencode");
+    mocked.getCurrentModelMock.mockReset();
     mocked.setAssistantModeMock.mockReset();
     mocked.selectModelMock.mockReset();
     mocked.keyboardInitializeMock.mockReset();
@@ -116,6 +121,30 @@ describe("bot/callbacks/mode-callback-handler", () => {
       modelID: "auto",
       variant: "default",
     });
+  });
+
+  it("keeps the selected model when the active mode is selected again", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("cursor");
+    mocked.getCurrentModelMock.mockReturnValue({
+      providerID: "cursor",
+      modelID: "cursor-grok-4.5-high",
+      variant: "default",
+    });
+    const ctx = {
+      chat: { id: 42, type: "private" },
+      api: {},
+      callbackQuery: { data: `${MODE_CALLBACK_PREFIX}cursor` },
+      deleteMessage: vi.fn().mockResolvedValue(undefined),
+      answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Context;
+
+    await expect(handleModeCallback(ctx)).resolves.toBe(true);
+
+    expect(mocked.setAssistantModeMock).not.toHaveBeenCalled();
+    expect(mocked.selectModelMock).not.toHaveBeenCalled();
+    expect(mocked.keyboardUpdateModelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ modelID: "cursor-grok-4.5-high" }),
+    );
   });
 
   it("rejects unknown callback prefix", async () => {
