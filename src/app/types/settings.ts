@@ -13,6 +13,7 @@ export interface Settings {
   currentSession?: SessionInfo;
   currentAgent?: string;
   currentModel?: ModelInfo;
+  assistantMode?: "opencode" | "agy";
   pinnedMessageId?: number;
   ttsMode?: "off" | "all" | "auto";
   sessionDirectoryCache?: SessionDirectoryCacheInfo;

@@ -4,9 +4,7 @@ import { questionManager } from "../../app/managers/question-manager.js";
 import { t } from "../../i18n/index.js";
 import { logger } from "../../utils/logger.js";
 import { handleTaskTextInput } from "../commands/task-command.js";
-import {
-  handleModelSearchTextInput,
-} from "../callbacks/model-selection-callback-handler.js";
+import { handleModelSearchTextInput } from "../callbacks/model-selection-callback-handler.js";
 import { handleQuestionTextAnswer } from "../callbacks/question-callback-handler.js";
 import { handleRenameTextAnswer } from "../callbacks/rename-callback-handler.js";
 import { handleContextButtonPress } from "../menus/context-control-menu.js";
@@ -132,6 +130,18 @@ export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps
     await handleVoiceMessage(ctx, voicePromptDeps);
   });
 
+  bot.on("message:video", async (ctx) => {
+    logger.debug(`[Bot] Received video message, chatId=${ctx.chat.id}`);
+    deps.setTelegramContext(bot, ctx.chat.id);
+    await handleVoiceMessage(ctx, voicePromptDeps);
+  });
+
+  bot.on("message:video_note", async (ctx) => {
+    logger.debug(`[Bot] Received video note message, chatId=${ctx.chat.id}`);
+    deps.setTelegramContext(bot, ctx.chat.id);
+    await handleVoiceMessage(ctx, voicePromptDeps);
+  });
+
   bot.on(
     "message",
     createMediaGroupAttachmentMiddleware({
@@ -149,7 +159,10 @@ export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps
   bot.on("message:document", async (ctx) => {
     logger.debug(`[Bot] Received document message, chatId=${ctx.chat.id}`);
     deps.setTelegramContext(bot, ctx.chat.id);
-    await handleDocumentMessage(ctx, { bot, ensureEventSubscription: deps.ensureEventSubscription });
+    await handleDocumentMessage(ctx, {
+      bot,
+      ensureEventSubscription: deps.ensureEventSubscription,
+    });
   });
 
   bot.on("message:text", async (ctx) => {

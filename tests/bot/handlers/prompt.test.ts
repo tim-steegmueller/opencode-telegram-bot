@@ -23,6 +23,14 @@ const mocked = vi.hoisted(() => ({
   setBotAndChatIdMock: vi.fn(),
   attachToSessionMock: vi.fn(),
   getTtsModeMock: vi.fn(),
+  getAssistantModeMock: vi.fn(),
+  storedModel: {
+    providerID: "openai",
+    modelID: "gpt-5",
+    variant: "default",
+  },
+  runAgyAgentPromptMock: vi.fn(),
+  isAgyAgentRunActiveMock: vi.fn(),
 }));
 
 vi.mock("../../../src/opencode/client.js", () => ({
@@ -50,6 +58,7 @@ vi.mock("../../../src/app/services/session-cache-service.js", () => ({
 vi.mock("../../../src/app/stores/settings-store.js", () => ({
   getCurrentProject: vi.fn(() => mocked.currentProject),
   getTtsMode: mocked.getTtsModeMock,
+  getAssistantMode: mocked.getAssistantModeMock,
 }));
 
 vi.mock("../../../src/app/services/agent-selection-service.js", () => ({
@@ -58,11 +67,13 @@ vi.mock("../../../src/app/services/agent-selection-service.js", () => ({
 }));
 
 vi.mock("../../../src/app/services/model-selection-service.js", () => ({
-  getStoredModel: vi.fn(() => ({
-    providerID: "openai",
-    modelID: "gpt-5",
-    variant: "default",
-  })),
+  getStoredModel: vi.fn(() => mocked.storedModel),
+}));
+
+vi.mock("../../../src/app/services/agy-agent-service.js", () => ({
+  isAgyAgentRunActive: mocked.isAgyAgentRunActiveMock,
+  resolveAgyModelName: vi.fn(() => "Gemini 3.5 Flash (High)"),
+  runAgyAgentPrompt: mocked.runAgyAgentPromptMock,
 }));
 
 vi.mock("../../../src/bot/pinned/pinned-message-manager.js", () => ({
@@ -148,7 +159,12 @@ function createContext(): Context {
 
 function createDeps(): ProcessPromptDeps {
   return {
-    bot: { api: { sendMessage: vi.fn().mockResolvedValue(undefined) } } as unknown as Bot<Context>,
+    bot: {
+      api: {
+        editMessageText: vi.fn().mockResolvedValue(undefined),
+        sendMessage: vi.fn().mockResolvedValue(undefined),
+      },
+    } as unknown as Bot<Context>,
     ensureEventSubscription: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -189,7 +205,21 @@ describe("bot/handlers/prompt", () => {
     mocked.setBotAndChatIdMock.mockReset();
     mocked.attachToSessionMock.mockReset();
     mocked.getTtsModeMock.mockReset();
+    mocked.getAssistantModeMock.mockReset();
+    mocked.storedModel = {
+      providerID: "openai",
+      modelID: "gpt-5",
+      variant: "default",
+    };
+    mocked.runAgyAgentPromptMock.mockReset();
+    mocked.isAgyAgentRunActiveMock.mockReset();
     mocked.getTtsModeMock.mockReturnValue("off");
+    mocked.getAssistantModeMock.mockReturnValue("opencode");
+    mocked.isAgyAgentRunActiveMock.mockReturnValue(false);
+    mocked.runAgyAgentPromptMock.mockResolvedValue({
+      output: "AGY done",
+      modelName: "Gemini 3.5 Flash (High)",
+    });
     mocked.attachToSessionMock.mockResolvedValue({
       busy: false,
       alreadyAttached: false,
@@ -244,6 +274,107 @@ describe("bot/handlers/prompt", () => {
       variant: "default",
     });
     expect(mocked.sessionPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("dispatches prompts through AGY agent mode without creating an OpenCode session", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.storedModel = {
+      providerID: "antigravity",
+      modelID: "gemini-3.5-flash-high",
+      variant: "default",
+    };
+    const ctx = createContext();
+    const deps = createDeps();
+
+    const handled = await processUserPrompt(ctx, "Create a file", deps);
+
+    expect(handled).toBe(true);
+    expect(ctx.reply).toHaveBeenCalledWith("🚀 AGY agent started with Gemini 3.5 Flash (High)...");
+    expect(mocked.sessionStatusMock).not.toHaveBeenCalled();
+    expect(mocked.sessionCreateMock).not.toHaveBeenCalled();
+    expect(mocked.attachToSessionMock).not.toHaveBeenCalled();
+
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+
+    expect(mocked.runAgyAgentPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "Create a file",
+        projectDirectory: "D:\\Projects\\Repo",
+        model: {
+          providerID: "antigravity",
+          modelID: "gemini-3.5-flash-high",
+          variant: "default",
+        },
+        onProgress: expect.any(Function),
+      }),
+    );
+  });
+
+  it("uses OpenCode when AGY mode is enabled but the selected model is not antigravity", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.storedModel = {
+      providerID: "deepseek",
+      modelID: "deepseek-v4-pro",
+      variant: "max",
+    };
+    const ctx = createContext();
+    const deps = createDeps();
+
+    const handled = await processUserPrompt(ctx, "Create GitHub issues", deps);
+
+    expect(handled).toBe(true);
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+    expect(mocked.attachToSessionMock).toHaveBeenCalled();
+
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+
+    expect(mocked.sessionPromptAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [{ type: "text", text: "Create GitHub issues" }],
+        model: {
+          providerID: "deepseek",
+          modelID: "deepseek-v4-pro",
+        },
+        variant: "max",
+      }),
+    );
+  });
+
+  it("streams AGY activity updates into the Telegram progress message", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.storedModel = {
+      providerID: "antigravity",
+      modelID: "gemini-3.5-flash-high",
+      variant: "default",
+    };
+    mocked.runAgyAgentPromptMock.mockImplementation(async (options) => {
+      options.onProgress?.("Run quality check: pnpm quality");
+      return {
+        output: "AGY done",
+        modelName: "Gemini 3.5 Flash (High)",
+      };
+    });
+    const ctx = createContext();
+    const deps = createDeps();
+
+    const handled = await processUserPrompt(ctx, "Review repo", deps);
+
+    expect(handled).toBe(true);
+
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+    backgroundTask.onSuccess?.({
+      output: "AGY done",
+      modelName: "Gemini 3.5 Flash (High)",
+    } as never);
+
+    expect(deps.bot.api.editMessageText).toHaveBeenLastCalledWith(
+      777,
+      100,
+      expect.stringContaining("Run quality check: pnpm quality"),
+    );
   });
 
   it("still notifies the user when promptAsync reports a real start error", async () => {

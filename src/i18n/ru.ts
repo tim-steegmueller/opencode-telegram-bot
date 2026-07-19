@@ -7,6 +7,7 @@ export const ru: I18nDictionary = {
   "cmd.description.detach": "Отсоединиться от текущей сессии",
   "cmd.description.sessions": "Список сессий",
   "cmd.description.messages": "Сообщения текущей сессии",
+  "cmd.description.mode": "Выбрать режим ассистента",
   "cmd.description.tts": "Выбрать режим аудиоответов",
   "cmd.description.projects": "Список проектов",
   "cmd.description.worktree": "Переключить git worktree",
@@ -132,6 +133,22 @@ export const ru: I18nDictionary = {
   "tts.auto": "🎤 Аудиоответы включены только для голосовых сообщений.",
   "tts.not_configured": "⚠️ Аудиоответы недоступны. Сначала укажите `TTS_API_URL` и `TTS_API_KEY`.",
   "tts.failed": "⚠️ Не удалось создать аудиоответ.",
+
+  "mode.prompt": "Choose assistant mode:",
+  "mode.option.opencode": "OpenCode agent",
+  "mode.option.agy": "AGY agent",
+  "mode.selected.opencode": "OpenCode mode selected.",
+  "mode.selected.agy": "AGY agent mode selected.",
+
+  "agy.started": "🚀 AGY agent started with {model}...",
+  "agy.running": "⏳ AGY is still running with {model} ({seconds}s)...",
+  "agy.finished_status": "✅ AGY agent finished.",
+  "agy.failed_status": "🔴 AGY agent failed.",
+  "agy.busy": "⏳ AGY agent is already running. Wait for completion before sending another task.",
+  "agy.attachments_unsupported":
+    "⚠️ AGY mode currently supports text prompts only. Switch to OpenCode mode for files or images.",
+  "agy.response": "AGY ({model}) finished:\n\n{output}",
+  "agy.error": "🔴 AGY agent failed:\n\n{error}",
 
   "projects.empty":
     "📭 Проектов нет.\n\nОткройте директорию в OpenCode и создайте хотя бы одну сессию, после этого она появится здесь.",

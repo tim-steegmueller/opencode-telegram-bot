@@ -7,6 +7,7 @@ export const zh: I18nDictionary = {
   "cmd.description.detach": "从当前会话分离",
   "cmd.description.sessions": "列出会话",
   "cmd.description.messages": "浏览会话消息",
+  "cmd.description.mode": "选择助手模式",
   "cmd.description.tts": "选择语音回复模式",
   "cmd.description.projects": "列出项目",
   "cmd.description.worktree": "切换 git worktree",
@@ -120,6 +121,22 @@ export const zh: I18nDictionary = {
   "tts.auto": "🎤 仅为语音消息启用语音回复。",
   "tts.not_configured": "⚠️ 语音回复暂不可用。请先设置 `TTS_API_URL` 和 `TTS_API_KEY`。",
   "tts.failed": "⚠️ 生成语音回复失败。",
+
+  "mode.prompt": "Choose assistant mode:",
+  "mode.option.opencode": "OpenCode agent",
+  "mode.option.agy": "AGY agent",
+  "mode.selected.opencode": "OpenCode mode selected.",
+  "mode.selected.agy": "AGY agent mode selected.",
+
+  "agy.started": "🚀 AGY agent started with {model}...",
+  "agy.running": "⏳ AGY is still running with {model} ({seconds}s)...",
+  "agy.finished_status": "✅ AGY agent finished.",
+  "agy.failed_status": "🔴 AGY agent failed.",
+  "agy.busy": "⏳ AGY agent is already running. Wait for completion before sending another task.",
+  "agy.attachments_unsupported":
+    "⚠️ AGY mode currently supports text prompts only. Switch to OpenCode mode for files or images.",
+  "agy.response": "AGY ({model}) finished:\n\n{output}",
+  "agy.error": "🔴 AGY agent failed:\n\n{error}",
 
   "projects.empty":
     "📭 未找到项目。\n\n在 OpenCode 中打开一个目录并至少创建一个会话，然后它会出现在这里。",

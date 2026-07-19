@@ -167,7 +167,7 @@ export function createVoiceHandler(deps: VoiceMessageDeps) {
 }
 
 /**
- * Handles incoming voice and audio messages:
+ * Handles incoming voice, audio, and video messages:
  * 1. Checks if STT is configured
  * 2. Downloads the audio file from Telegram
  * 3. Sends "recognizing..." status message
@@ -181,13 +181,15 @@ export async function handleVoiceMessage(ctx: Context, deps: VoiceMessageDeps): 
   const transcribe = deps.transcribeAudio ?? transcribeAudio;
   const processPrompt = deps.processPrompt ?? processUserPrompt;
 
-  // Determine file_id from voice or audio message
+  // Determine file_id from voice, audio, or video message
   const voice = ctx.message?.voice;
   const audio = ctx.message?.audio;
-  const fileId = voice?.file_id ?? audio?.file_id;
+  const video = ctx.message?.video;
+  const videoNote = ctx.message?.video_note;
+  const fileId = voice?.file_id ?? audio?.file_id ?? video?.file_id ?? videoNote?.file_id;
 
   if (!fileId) {
-    logger.warn("[Voice] Received voice/audio message with no file_id");
+    logger.warn("[Voice] Received voice/audio/video message with no file_id");
     return;
   }
 

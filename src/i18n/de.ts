@@ -7,6 +7,7 @@ export const de: I18nDictionary = {
   "cmd.description.detach": "Von aktueller Sitzung trennen",
   "cmd.description.sessions": "Sitzungen auflisten",
   "cmd.description.messages": "Sitzungsnachrichten durchsuchen",
+  "cmd.description.mode": "Assistentenmodus wählen",
   "cmd.description.tts": "Audioantwort-Modus wählen",
   "cmd.description.projects": "Projekte auflisten",
   "cmd.description.worktree": "Git-Worktrees wechseln",
@@ -140,6 +141,23 @@ export const de: I18nDictionary = {
   "tts.not_configured":
     "⚠️ Audioantworten sind nicht verfugbar. Setze zuerst `TTS_API_URL` und `TTS_API_KEY`.",
   "tts.failed": "⚠️ Audioreply konnte nicht erzeugt werden.",
+
+  "mode.prompt": "Assistentenmodus auswählen:",
+  "mode.option.opencode": "OpenCode-Agent",
+  "mode.option.agy": "AGY-Agent",
+  "mode.selected.opencode": "OpenCode-Modus ausgewählt.",
+  "mode.selected.agy": "AGY-Agentenmodus ausgewählt.",
+
+  "agy.started": "🚀 AGY-Agent mit {model} gestartet...",
+  "agy.running": "⏳ AGY läuft noch mit {model} ({seconds}s)...",
+  "agy.finished_status": "✅ AGY-Agent abgeschlossen.",
+  "agy.failed_status": "🔴 AGY-Agent fehlgeschlagen.",
+  "agy.busy":
+    "⏳ Der AGY-Agent läuft bereits. Warte auf den Abschluss, bevor du die nächste Aufgabe sendest.",
+  "agy.attachments_unsupported":
+    "⚠️ Der AGY-Modus unterstützt aktuell nur Text-Prompts. Für Dateien oder Bilder bitte in den OpenCode-Modus wechseln.",
+  "agy.response": "AGY ({model}) ist fertig:\n\n{output}",
+  "agy.error": "🔴 AGY-Agent fehlgeschlagen:\n\n{error}",
 
   "projects.empty":
     "📭 Keine Projekte gefunden.\n\nÖffne ein Verzeichnis in OpenCode und erstelle mindestens eine Sitzung, dann erscheint es hier.",

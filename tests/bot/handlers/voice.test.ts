@@ -217,6 +217,33 @@ describe("bot/handlers/voice-handler", () => {
     });
   });
 
+  it("transcribes Telegram video messages and sends the recognized text as a prompt", async () => {
+    const { handleVoiceMessage } = await loadVoiceModule();
+    const { ctx } = createVoiceContext();
+    ctx.message = {
+      video: {
+        file_id: "video-file-id",
+      },
+    } as Context["message"];
+    const downloadVideoMock = vi.fn().mockResolvedValue({
+      buffer: Buffer.from("video"),
+      filename: "clip.mp4",
+    });
+    const transcribeVideoMock = vi.fn().mockResolvedValue({ text: "summarize this clip" });
+    const { deps, processPromptMock } = createVoiceDeps({
+      downloadTelegramFile: downloadVideoMock,
+      transcribeAudio: transcribeVideoMock,
+    });
+
+    await handleVoiceMessage(ctx, deps);
+
+    expect(downloadVideoMock).toHaveBeenCalledWith(ctx, "video-file-id");
+    expect(transcribeVideoMock).toHaveBeenCalledWith(Buffer.from("video"), "clip.mp4");
+    expect(processPromptMock).toHaveBeenCalledWith(ctx, "summarize this clip", deps, [], {
+      responseMode: "text_only",
+    });
+  });
+
   it.each(["", "false", "0", "   "])(
     "does not add STT note when STT_NOTE_PROMPT is %j",
     async (notePrompt) => {

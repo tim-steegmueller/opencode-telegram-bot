@@ -124,6 +124,17 @@ export function clearCurrentModel(): void {
   void writeSettingsFile(currentSettings);
 }
 
+export type AssistantMode = "opencode" | "agy";
+
+export function getAssistantMode(): AssistantMode {
+  return currentSettings.assistantMode ?? "opencode";
+}
+
+export function setAssistantMode(mode: AssistantMode): void {
+  currentSettings.assistantMode = mode;
+  void writeSettingsFile(currentSettings);
+}
+
 export function getPinnedMessageId(): number | undefined {
   return currentSettings.pinnedMessageId;
 }

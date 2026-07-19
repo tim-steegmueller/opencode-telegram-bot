@@ -5,6 +5,7 @@ export const en = {
   "cmd.description.detach": "Detach from current session",
   "cmd.description.sessions": "List sessions",
   "cmd.description.messages": "Browse session messages",
+  "cmd.description.mode": "Choose assistant mode",
   "cmd.description.tts": "Choose audio reply mode",
   "cmd.description.projects": "List projects",
   "cmd.description.worktree": "Switch git worktrees",
@@ -133,6 +134,22 @@ export const en = {
   "tts.not_configured":
     "⚠️ Audio replies are unavailable. Set `TTS_API_URL` and `TTS_API_KEY` first.",
   "tts.failed": "⚠️ Failed to generate audio reply.",
+
+  "mode.prompt": "Choose assistant mode:",
+  "mode.option.opencode": "OpenCode agent",
+  "mode.option.agy": "AGY agent",
+  "mode.selected.opencode": "OpenCode mode selected.",
+  "mode.selected.agy": "AGY agent mode selected.",
+
+  "agy.started": "🚀 AGY agent started with {model}...",
+  "agy.running": "⏳ AGY is still running with {model} ({seconds}s)...",
+  "agy.finished_status": "✅ AGY agent finished.",
+  "agy.failed_status": "🔴 AGY agent failed.",
+  "agy.busy": "⏳ AGY agent is already running. Wait for completion before sending another task.",
+  "agy.attachments_unsupported":
+    "⚠️ AGY mode currently supports text prompts only. Switch to OpenCode mode for files or images.",
+  "agy.response": "AGY ({model}) finished:\n\n{output}",
+  "agy.error": "🔴 AGY agent failed:\n\n{error}",
 
   "projects.empty":
     "📭 No projects found.\n\nOpen a directory in OpenCode and create at least one session, then it will appear here.",

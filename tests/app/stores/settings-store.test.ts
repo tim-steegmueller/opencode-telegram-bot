@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setRuntimeMode } from "../../../src/runtime/mode.js";
 import {
   __resetSettingsForTests,
+  getAssistantMode,
   getTtsMode,
   loadSettings,
+  setAssistantMode,
 } from "../../../src/app/stores/settings-store.js";
 
 describe("app/stores/settings-store", () => {
@@ -41,4 +43,12 @@ describe("app/stores/settings-store", () => {
       expect(getTtsMode()).toBe(expectedMode);
     },
   );
+
+  it("defaults assistant mode to opencode and stores explicit mode", () => {
+    expect(getAssistantMode()).toBe("opencode");
+
+    setAssistantMode("agy");
+
+    expect(getAssistantMode()).toBe("agy");
+  });
 });

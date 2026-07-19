@@ -43,12 +43,14 @@ function createDocumentDeps(overrides: Partial<DocumentHandlerDeps> = {}): {
   downloadMock: ReturnType<typeof vi.fn>;
   getCapabilitiesMock: ReturnType<typeof vi.fn>;
   getStoredModelMock: ReturnType<typeof vi.fn>;
+  transcribeMock: ReturnType<typeof vi.fn>;
 } {
   const processPromptMock = vi.fn().mockResolvedValue(true);
   const downloadMock = vi.fn().mockResolvedValue({
     buffer: Buffer.from("file content here"),
     filePath: "documents/test.txt",
   });
+  const transcribeMock = vi.fn().mockResolvedValue({ text: "video transcript" });
   const getCapabilitiesMock = vi.fn().mockResolvedValue({
     input: { pdf: true, image: true },
   });
@@ -63,11 +65,20 @@ function createDocumentDeps(overrides: Partial<DocumentHandlerDeps> = {}): {
     downloadFile: downloadMock,
     getModelCapabilities: getCapabilitiesMock,
     getStoredModel: getStoredModelMock,
+    isSttConfigured: vi.fn(() => true),
+    transcribeAudio: transcribeMock,
     processPrompt: processPromptMock,
     ...overrides,
   };
 
-  return { deps, processPromptMock, downloadMock, getCapabilitiesMock, getStoredModelMock };
+  return {
+    deps,
+    processPromptMock,
+    downloadMock,
+    getCapabilitiesMock,
+    getStoredModelMock,
+    transcribeMock,
+  };
 }
 
 describe("bot/handlers/document", () => {
@@ -346,6 +357,62 @@ describe("bot/handlers/document", () => {
       await handleDocumentMessage(ctx, deps);
 
       expect(replyMock).toHaveBeenCalledWith(t("bot.file_type_unsupported"));
+      expect(downloadMock).not.toHaveBeenCalled();
+      expect(processPromptMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("video files", () => {
+    it("transcribes video documents and sends transcript plus caption as prompt", async () => {
+      const { ctx, replyMock } = createDocumentContext({
+        document: {
+          file_id: "video-file-id",
+          file_unique_id: "video-unique-id",
+          file_name: "clip.mp4",
+          mime_type: "video/mp4",
+          file_size: 5000,
+        },
+        caption: "Please summarize",
+      });
+      const downloadVideoMock = vi.fn().mockResolvedValue({
+        buffer: Buffer.from("video"),
+        filePath: "videos/clip.mp4",
+      });
+      const transcribeVideoMock = vi.fn().mockResolvedValue({ text: "spoken words" });
+      const { deps, processPromptMock } = createDocumentDeps({
+        downloadFile: downloadVideoMock,
+        transcribeAudio: transcribeVideoMock,
+      });
+
+      await handleDocumentMessage(ctx, deps);
+
+      expect(replyMock).toHaveBeenCalledWith(t("bot.file_downloading"));
+      expect(downloadVideoMock).toHaveBeenCalledWith(ctx.api, "video-file-id");
+      expect(transcribeVideoMock).toHaveBeenCalledWith(Buffer.from("video"), "clip.mp4");
+      expect(processPromptMock).toHaveBeenCalledWith(
+        ctx,
+        "Please summarize\n\n--- Transcribed audio from clip.mp4 ---\nspoken words",
+        deps,
+      );
+    });
+
+    it("shows STT configuration error for video documents when STT is disabled", async () => {
+      const { ctx, replyMock } = createDocumentContext({
+        document: {
+          file_id: "video-file-id",
+          file_unique_id: "video-unique-id",
+          file_name: "clip.mp4",
+          mime_type: "video/mp4",
+          file_size: 5000,
+        },
+      });
+      const { deps, processPromptMock, downloadMock } = createDocumentDeps({
+        isSttConfigured: vi.fn(() => false),
+      });
+
+      await handleDocumentMessage(ctx, deps);
+
+      expect(replyMock).toHaveBeenCalledWith(t("stt.not_configured"));
       expect(downloadMock).not.toHaveBeenCalled();
       expect(processPromptMock).not.toHaveBeenCalled();
     });

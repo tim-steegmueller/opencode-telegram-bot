@@ -14,6 +14,7 @@ export const ar: I18nDictionary = {
   "cmd.description.detach": "الخروج من الجلسة دون إيقافها",
   "cmd.description.sessions": "عرض الجلسات السابقة",
   "cmd.description.messages": "استعراض رسائل الجلسة",
+  "cmd.description.mode": "اختيار وضع المساعد",
   "cmd.description.tts": "اختيار وضع الردود الصوتية",
   "cmd.description.projects": "عرض المشاريع",
   "cmd.description.worktree": "التبديل بين نسخ العمل في Git",
@@ -121,6 +122,22 @@ export const ar: I18nDictionary = {
   "tts.auto": "🎤 تم تفعيل الردود الصوتية للرسائل الصوتية فقط.",
   "tts.not_configured": "⚠️ الردود الصوتية غير متاحة حاليًا. اضبط `TTS_API_URL` و`TTS_API_KEY` أولًا.",
   "tts.failed": "⚠️ تعذر إنشاء الرد الصوتي.",
+
+  "mode.prompt": "Choose assistant mode:",
+  "mode.option.opencode": "OpenCode agent",
+  "mode.option.agy": "AGY agent",
+  "mode.selected.opencode": "OpenCode mode selected.",
+  "mode.selected.agy": "AGY agent mode selected.",
+
+  "agy.started": "🚀 AGY agent started with {model}...",
+  "agy.running": "⏳ AGY is still running with {model} ({seconds}s)...",
+  "agy.finished_status": "✅ AGY agent finished.",
+  "agy.failed_status": "🔴 AGY agent failed.",
+  "agy.busy": "⏳ AGY agent is already running. Wait for completion before sending another task.",
+  "agy.attachments_unsupported":
+    "⚠️ AGY mode currently supports text prompts only. Switch to OpenCode mode for files or images.",
+  "agy.response": "AGY ({model}) finished:\n\n{output}",
+  "agy.error": "🔴 AGY agent failed:\n\n{error}",
 
   "projects.empty": "📭 لم يتم العثور على مشاريع.\n\nافتح مجلدًا في OpenCode وأنشئ جلسة واحدة على الأقل، ثم سيظهر المشروع هنا.",
   "projects.select": "اختر مشروعًا:",

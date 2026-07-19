@@ -7,6 +7,7 @@ export const es: I18nDictionary = {
   "cmd.description.detach": "Desconectar de la sesión actual",
   "cmd.description.sessions": "Listar sesiones",
   "cmd.description.messages": "Ver mensajes de la sesión",
+  "cmd.description.mode": "Elegir modo de asistente",
   "cmd.description.tts": "Elegir modo de respuestas de audio",
   "cmd.description.projects": "Listar proyectos",
   "cmd.description.worktree": "Cambiar worktrees de git",
@@ -140,6 +141,22 @@ export const es: I18nDictionary = {
   "tts.not_configured":
     "⚠️ Las respuestas de audio no estan disponibles. Configura primero `TTS_API_URL` y `TTS_API_KEY`.",
   "tts.failed": "⚠️ No se pudo generar la respuesta de audio.",
+
+  "mode.prompt": "Choose assistant mode:",
+  "mode.option.opencode": "OpenCode agent",
+  "mode.option.agy": "AGY agent",
+  "mode.selected.opencode": "OpenCode mode selected.",
+  "mode.selected.agy": "AGY agent mode selected.",
+
+  "agy.started": "🚀 AGY agent started with {model}...",
+  "agy.running": "⏳ AGY is still running with {model} ({seconds}s)...",
+  "agy.finished_status": "✅ AGY agent finished.",
+  "agy.failed_status": "🔴 AGY agent failed.",
+  "agy.busy": "⏳ AGY agent is already running. Wait for completion before sending another task.",
+  "agy.attachments_unsupported":
+    "⚠️ AGY mode currently supports text prompts only. Switch to OpenCode mode for files or images.",
+  "agy.response": "AGY ({model}) finished:\n\n{output}",
+  "agy.error": "🔴 AGY agent failed:\n\n{error}",
 
   "projects.empty":
     "📭 No se encontraron proyectos.\n\nAbre un directorio en OpenCode y crea al menos una sesión; entonces aparecerá aquí.",

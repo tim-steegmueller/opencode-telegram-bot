@@ -7,9 +7,18 @@ import {
   setCurrentSession,
 } from "../../app/services/session-service.js";
 import { ingestSessionInfoForCache } from "../../app/services/session-cache-service.js";
-import { getCurrentProject, getTtsMode } from "../../app/stores/settings-store.js";
+import {
+  getAssistantMode,
+  getCurrentProject,
+  getTtsMode,
+} from "../../app/stores/settings-store.js";
 import { getStoredAgent, resolveProjectAgent } from "../../app/services/agent-selection-service.js";
 import { getStoredModel } from "../../app/services/model-selection-service.js";
+import {
+  isAgyAgentRunActive,
+  resolveAgyModelName,
+  runAgyAgentPrompt,
+} from "../../app/services/agy-agent-service.js";
 import { formatVariantForButton } from "../../app/services/variant-selection-service.js";
 import { createMainKeyboard } from "../keyboards/main-reply-keyboard.js";
 import { keyboardManager } from "../keyboards/keyboard-manager.js";
@@ -142,6 +151,130 @@ export async function processUserPrompt(
 
   botInstance = bot;
   chatIdInstance = ctx.chat!.id;
+  const selectedModel = getStoredModel();
+
+  if (getAssistantMode() === "agy" && selectedModel.providerID === "antigravity") {
+    if (fileParts.length > 0) {
+      await ctx.reply(t("agy.attachments_unsupported"));
+      return false;
+    }
+
+    if (isAgyAgentRunActive()) {
+      await ctx.reply(t("agy.busy"));
+      return false;
+    }
+
+    const modelName = resolveAgyModelName(selectedModel);
+    const progressMessage = await ctx.reply(t("agy.started", { model: modelName }));
+    const startedAt = Date.now();
+    const activityLines: string[] = [];
+    let lastStatusText = "";
+    let lastStatusUpdateAt = 0;
+    const renderStatusText = (): string => {
+      const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      const baseText = t("agy.running", { model: modelName, seconds });
+      return appendActivityLines(baseText);
+    };
+    const appendActivityLines = (baseText: string): string => {
+      if (activityLines.length === 0) {
+        return baseText;
+      }
+
+      return `${baseText}\n\n${activityLines.map((line) => `• ${line}`).join("\n")}`;
+    };
+    const updateProgressMessage = (force = false): void => {
+      const now = Date.now();
+      if (!force && now - lastStatusUpdateAt < 3_000) {
+        return;
+      }
+
+      const statusText = renderStatusText();
+      if (statusText === lastStatusText) {
+        return;
+      }
+
+      lastStatusText = statusText;
+      lastStatusUpdateAt = now;
+      void bot.api
+        .editMessageText(ctx.chat!.id, progressMessage.message_id, statusText)
+        .catch((sendError) => {
+          logger.debug("[AGY] Failed to update progress message:", sendError);
+        });
+    };
+    let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
+      updateProgressMessage(true);
+    }, 15_000);
+    heartbeat.unref?.();
+
+    const stopHeartbeat = () => {
+      if (!heartbeat) {
+        return;
+      }
+
+      clearInterval(heartbeat);
+      heartbeat = null;
+    };
+
+    safeBackgroundTask({
+      taskName: "agy.agent",
+      task: () =>
+        runAgyAgentPrompt({
+          prompt: text,
+          projectDirectory: currentProject.worktree,
+          model: selectedModel,
+          onProgress: (line) => {
+            if (!activityLines.includes(line)) {
+              activityLines.push(line);
+              while (activityLines.length > 8) {
+                activityLines.shift();
+              }
+            }
+
+            updateProgressMessage();
+          },
+        }),
+      onSuccess: (result) => {
+        stopHeartbeat();
+        void bot.api
+          .editMessageText(
+            ctx.chat!.id,
+            progressMessage.message_id,
+            appendActivityLines(t("agy.finished_status")),
+          )
+          .catch((sendError) => {
+            logger.debug("[AGY] Failed to mark progress message as finished:", sendError);
+          });
+        void bot.api
+          .sendMessage(
+            ctx.chat!.id,
+            t("agy.response", { model: result.modelName, output: result.output }),
+          )
+          .catch((sendError) => {
+            logger.error("[AGY] Failed to send agent response:", sendError);
+          });
+      },
+      onError: (error) => {
+        stopHeartbeat();
+        const details = formatErrorDetails(error, 3000);
+        void bot.api
+          .editMessageText(
+            ctx.chat!.id,
+            progressMessage.message_id,
+            appendActivityLines(t("agy.failed_status")),
+          )
+          .catch((sendError) => {
+            logger.debug("[AGY] Failed to mark progress message as failed:", sendError);
+          });
+        void bot.api
+          .sendMessage(ctx.chat!.id, t("agy.error", { error: details }))
+          .catch((sendError) => {
+            logger.error("[AGY] Failed to send agent error:", sendError);
+          });
+      },
+    });
+
+    return true;
+  }
 
   let currentSession = getCurrentSession();
   let createdNewSession = false;

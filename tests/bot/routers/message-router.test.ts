@@ -19,6 +19,8 @@ describe("bot/routers/message-router", () => {
       "message:text",
       "message:voice",
       "message:audio",
+      "message:video",
+      "message:video_note",
       "message",
       "message:photo",
       "message:document",

@@ -17,6 +17,7 @@ describe("bot/routers/command-router", () => {
       "start",
       "help",
       "status",
+      "mode",
       "tts",
       "opencode_start",
       "opencode_stop",
