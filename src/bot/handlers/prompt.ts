@@ -40,6 +40,10 @@ import {
   markAttachedSessionIdle,
 } from "../../app/services/attach-service.js";
 import { externalUserInputSuppressionManager } from "../../app/managers/external-input-suppression-manager.js";
+import {
+  clearPendingAttachments,
+  getPendingAttachments,
+} from "../../app/services/pending-attachment-service.js";
 
 /** Module-level references for async callbacks that don't have ctx. */
 let botInstance: Bot<Context> | null = null;
@@ -152,13 +156,9 @@ export async function processUserPrompt(
   botInstance = bot;
   chatIdInstance = ctx.chat!.id;
   const selectedModel = getStoredModel();
+  const attachmentParts = [...getPendingAttachments(ctx.chat!.id), ...fileParts];
 
   if (getAssistantMode() === "agy" && selectedModel.providerID === "antigravity") {
-    if (fileParts.length > 0) {
-      await ctx.reply(t("agy.attachments_unsupported"));
-      return false;
-    }
-
     if (isAgyAgentRunActive()) {
       await ctx.reply(t("agy.busy"));
       return false;
@@ -222,6 +222,7 @@ export async function processUserPrompt(
           prompt: text,
           projectDirectory: currentProject.worktree,
           model: selectedModel,
+          attachments: attachmentParts,
           onProgress: (line) => {
             if (!activityLines.includes(line)) {
               activityLines.push(line);
@@ -273,6 +274,7 @@ export async function processUserPrompt(
       },
     });
 
+    clearPendingAttachments(ctx.chat!.id);
     return true;
   }
 
@@ -364,13 +366,14 @@ export async function processUserPrompt(
     }
 
     // Add file parts
-    parts.push(...fileParts);
+    parts.push(...attachmentParts);
 
     // If no text and files exist, use a placeholder
     if (parts.length === 0 || (parts.length > 0 && parts.every((p) => p.type === "file"))) {
-      if (fileParts.length > 0) {
+      if (attachmentParts.length > 0) {
         // Files without text - add a minimal system prompt
-        const attachmentText = fileParts.length === 1 ? "See attached file" : "See attached files";
+        const attachmentText =
+          attachmentParts.length === 1 ? "See attached file" : "See attached files";
         parts.unshift({ type: "text", text: attachmentText });
       }
     }
@@ -410,11 +413,11 @@ export async function processUserPrompt(
       modelId: storedModel.modelID || "default",
       variant: storedModel.variant || "default",
       promptLength: text.length,
-      fileCount: fileParts.length,
+      fileCount: attachmentParts.length,
     };
 
     logger.info(
-      `[Bot] Calling session.promptAsync (start-only) with agent=${currentAgent}, fileCount=${fileParts.length}...`,
+      `[Bot] Calling session.promptAsync (start-only) with agent=${currentAgent}, fileCount=${attachmentParts.length}...`,
     );
 
     foregroundSessionState.markBusy(currentSession.id, currentSession.directory);
@@ -473,6 +476,7 @@ export async function processUserPrompt(
       },
     });
 
+    clearPendingAttachments(ctx.chat!.id);
     return true;
   } catch (err) {
     if (currentSession) {

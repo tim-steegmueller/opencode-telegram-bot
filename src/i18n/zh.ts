@@ -79,6 +79,8 @@ export const zh: I18nDictionary = {
   "bot.photo_model_no_image": "⚠️ 当前模型不支持图像输入。将仅发送文本。",
   "bot.photo_download_error": "🔴 下载照片失败",
   "bot.photo_no_caption": "💡 提示：添加说明文字以描述你希望对这张照片做什么。",
+  "bot.photo_waiting_for_prompt":
+    "📎 照片已保存。请在 {minutes} 分钟内发送文字或语音消息。",
   "bot.file_downloading": "⏳ 正在下载文件...",
   "bot.files_downloading": "⏳ 正在下载文件...",
   "bot.file_too_large": "⚠️ 文件过大（最大 {maxSizeMb}MB）",

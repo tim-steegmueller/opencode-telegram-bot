@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
-import { open, readdir, stat } from "node:fs/promises";
+import { mkdtemp, open, readdir, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import type { FilePartInput } from "@opencode-ai/sdk/v2";
 import type { ModelInfo } from "../types/model.js";
 import { logger } from "../../utils/logger.js";
 
@@ -29,6 +31,7 @@ export interface AgyAgentRunOptions {
   prompt: string;
   projectDirectory: string;
   model?: ModelInfo;
+  attachments?: FilePartInput[];
   onProgress?: (line: string) => void;
 }
 
@@ -56,6 +59,51 @@ export function resolveAgyModelName(model?: ModelInfo): string {
 
 export function isAgyAgentRunActive(): boolean {
   return activeRun;
+}
+
+function decodeDataUri(url: string): Buffer {
+  const match = /^data:[^;,]+;base64,(.*)$/s.exec(url);
+  if (!match?.[1]) {
+    throw new Error("AGY attachments must use base64 data URIs");
+  }
+
+  return Buffer.from(match[1], "base64");
+}
+
+async function prepareAgyAttachments(attachments: FilePartInput[]): Promise<{
+  directory: string;
+  filePaths: string[];
+} | null> {
+  if (attachments.length === 0) {
+    return null;
+  }
+
+  const directory = await mkdtemp(path.join(os.tmpdir(), "opencode-telegram-agy-"));
+
+  try {
+    const filePaths: string[] = [];
+    for (const [index, attachment] of attachments.entries()) {
+      const filename = path.basename(attachment.filename || `attachment-${index + 1}`);
+      const filePath = path.join(directory, `${index + 1}-${filename}`);
+      await writeFile(filePath, decodeDataUri(attachment.url));
+      filePaths.push(filePath);
+    }
+
+    return { directory, filePaths };
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function buildAgyPrompt(prompt: string, filePaths: string[]): string {
+  if (filePaths.length === 0) {
+    return prompt;
+  }
+
+  const attachmentList = filePaths.map((filePath) => `- ${filePath}`).join("\n");
+  const attachmentInstruction = `Telegram attachments:\n${attachmentList}\nInspect these files as part of the request.`;
+  return prompt.trim() ? `${prompt}\n\n${attachmentInstruction}` : attachmentInstruction;
 }
 
 function compactText(value: string, maxLength = 180): string {
@@ -341,6 +389,7 @@ export async function runAgyAgentPrompt({
   prompt,
   projectDirectory,
   model,
+  attachments = [],
   onProgress,
 }: AgyAgentRunOptions): Promise<AgyAgentRunResult> {
   if (activeRun) {
@@ -349,17 +398,22 @@ export async function runAgyAgentPrompt({
 
   activeRun = true;
   const modelName = resolveAgyModelName(model);
-  const args = [
-    "--add-dir",
-    projectDirectory,
-    "--dangerously-skip-permissions",
-    "--model",
-    modelName,
-    "--print",
-    prompt,
-  ];
+  let preparedAttachments: Awaited<ReturnType<typeof prepareAgyAttachments>> = null;
 
   try {
+    preparedAttachments = await prepareAgyAttachments(attachments);
+    const args = ["--add-dir", projectDirectory];
+    if (preparedAttachments) {
+      args.push("--add-dir", preparedAttachments.directory);
+    }
+    args.push(
+      "--dangerously-skip-permissions",
+      "--model",
+      modelName,
+      "--print",
+      buildAgyPrompt(prompt, preparedAttachments?.filePaths ?? []),
+    );
+
     logger.info(
       `[AGY] Starting agent run model="${modelName}" project=${projectDirectory} promptLength=${prompt.length}`,
     );
@@ -384,6 +438,9 @@ export async function runAgyAgentPrompt({
     logger.error("[AGY] Agent run failed:", error);
     throw error;
   } finally {
+    if (preparedAttachments) {
+      await rm(preparedAttachments.directory, { recursive: true, force: true });
+    }
     activeRun = false;
   }
 }

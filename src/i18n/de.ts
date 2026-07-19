@@ -95,6 +95,8 @@ export const de: I18nDictionary = {
   "bot.photo_download_error": "🔴 Foto konnte nicht heruntergeladen werden",
   "bot.photo_no_caption":
     "💡 Tipp: Füge eine Bildunterschrift hinzu, um zu beschreiben, was du mit diesem Foto tun möchtest.",
+  "bot.photo_waiting_for_prompt":
+    "📎 Bild gespeichert. Sende innerhalb von {minutes} Minuten Text oder eine Sprachnachricht dazu.",
   "bot.file_downloading": "⏳ Lade Datei herunter...",
   "bot.files_downloading": "⏳ Lade Dateien herunter...",
   "bot.file_too_large": "⚠️ Datei ist zu groß (max. {maxSizeMb}MB)",

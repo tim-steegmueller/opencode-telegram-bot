@@ -88,6 +88,8 @@ export const ru: I18nDictionary = {
     "⚠️ Текущая модель не поддерживает изображения. Отправляю только текст.",
   "bot.photo_download_error": "🔴 Не удалось скачать фото",
   "bot.photo_no_caption": "💡 Совет: Добавьте подпись, чтобы описать, что делать с этим фото.",
+  "bot.photo_waiting_for_prompt":
+    "📎 Фото сохранено. Отправьте текст или голосовое сообщение в течение {minutes} минут.",
   "bot.file_downloading": "⏳ Скачиваю файл...",
   "bot.files_downloading": "⏳ Скачиваю файлы...",
   "bot.file_too_large": "⚠️ Файл слишком большой (макс. {maxSizeMb}МБ)",

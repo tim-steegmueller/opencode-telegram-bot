@@ -54,17 +54,6 @@ export async function startBotApp(): Promise<void> {
   await reconcileStoredModelSelection();
   registerOpenCodeReadyRefreshHandler();
   const bot = createBot();
-  await scheduledTaskRuntime.initialize(
-    bot,
-    createScheduledTaskDeliverySender(bot.api, config.telegram.allowedUserId),
-  );
-  safeBackgroundTask({
-    taskName: "app.opencodeStartup",
-    task: async () => {
-      await opencodeAutoRestartService.start();
-      await notifyOpencodeReadyIfHealthy("startup");
-    },
-  });
 
   let shutdownStarted = false;
   let serviceStateCleared = false;
@@ -128,14 +117,26 @@ export async function startBotApp(): Promise<void> {
   process.on("SIGINT", handleSigint);
   process.on("SIGTERM", handleSigterm);
 
-  const webhookInfo = await bot.api.getWebhookInfo();
-  if (webhookInfo.url) {
-    logger.info(`[Bot] Webhook detected: ${webhookInfo.url}, removing...`);
-    await bot.api.deleteWebhook();
-    logger.info("[Bot] Webhook removed, switching to long polling");
-  }
-
   try {
+    const webhookInfo = await bot.api.getWebhookInfo();
+    if (webhookInfo.url) {
+      logger.info(`[Bot] Webhook detected: ${webhookInfo.url}, removing...`);
+      await bot.api.deleteWebhook();
+      logger.info("[Bot] Webhook removed, switching to long polling");
+    }
+
+    await scheduledTaskRuntime.initialize(
+      bot,
+      createScheduledTaskDeliverySender(bot.api, config.telegram.allowedUserId),
+    );
+    safeBackgroundTask({
+      taskName: "app.opencodeStartup",
+      task: async () => {
+        await opencodeAutoRestartService.start();
+        await notifyOpencodeReadyIfHealthy("startup");
+      },
+    });
+
     await bot.start({
       onStart: (botInfo) => {
         logger.info(`Bot @${botInfo.username} started!`);

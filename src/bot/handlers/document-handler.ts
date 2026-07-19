@@ -17,6 +17,7 @@ import {
   supportsInput,
 } from "../../app/services/model-capabilities-service.js";
 import { getStoredModel } from "../../app/services/model-selection-service.js";
+import { getAssistantMode, type AssistantMode } from "../../app/stores/settings-store.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../i18n/index.js";
 import type { FilePartInput, Model } from "@opencode-ai/sdk/v2";
@@ -31,6 +32,7 @@ export interface DocumentHandlerDeps extends ProcessPromptDeps {
     modelId: string,
   ) => Promise<Model["capabilities"] | null>;
   getStoredModel?: () => { providerID: string; modelID: string };
+  getAssistantMode?: () => AssistantMode;
   isSttConfigured?: () => boolean;
   transcribeAudio?: (audioBuffer: Buffer, filename: string) => Promise<SttResult>;
   processPrompt?: (
@@ -48,6 +50,7 @@ export async function handleDocumentMessage(
   const downloadFile = deps.downloadFile ?? downloadTelegramFile;
   const getCapabilities = deps.getModelCapabilities ?? getModelCapabilities;
   const getStored = deps.getStoredModel ?? getStoredModel;
+  const getMode = deps.getAssistantMode ?? getAssistantMode;
   const sttConfigured = deps.isSttConfigured ?? isSttConfigured;
   const transcribe = deps.transcribeAudio ?? transcribeAudio;
   const processPrompt = deps.processPrompt ?? processUserPrompt;
@@ -90,9 +93,12 @@ export async function handleDocumentMessage(
 
     if (mimeType.startsWith("image/")) {
       const storedModel = getStored();
-      const capabilities = await getCapabilities(storedModel.providerID, storedModel.modelID);
+      const capabilities =
+        getMode() === "agy"
+          ? null
+          : await getCapabilities(storedModel.providerID, storedModel.modelID);
 
-      if (!supportsInput(capabilities, "image")) {
+      if (getMode() !== "agy" && !supportsInput(capabilities, "image")) {
         logger.warn(
           `[Document] Model ${storedModel.providerID}/${storedModel.modelID} doesn't support image input`,
         );
@@ -126,9 +132,12 @@ export async function handleDocumentMessage(
 
     if (mimeType === "application/pdf") {
       const storedModel = getStored();
-      const capabilities = await getCapabilities(storedModel.providerID, storedModel.modelID);
+      const capabilities =
+        getMode() === "agy"
+          ? null
+          : await getCapabilities(storedModel.providerID, storedModel.modelID);
 
-      if (!supportsInput(capabilities, "pdf")) {
+      if (getMode() !== "agy" && !supportsInput(capabilities, "pdf")) {
         logger.warn(
           `[Document] Model ${storedModel.providerID}/${storedModel.modelID} doesn't support PDF input`,
         );

@@ -81,6 +81,8 @@ export const ar: I18nDictionary = {
   "bot.photo_model_no_image": "⚠️ النموذج الحالي لا يدعم الصور. سيتم إرسال النص فقط.",
   "bot.photo_download_error": "🔴 تعذر تنزيل الصورة",
   "bot.photo_no_caption": "💡 نصيحة: أضف وصفًا للصورة حتى يفهم الوكيل المطلوب منها.",
+  "bot.photo_waiting_for_prompt":
+    "📎 تم حفظ الصورة. أرسل نصًا أو رسالة صوتية خلال {minutes} دقائق لاستخدامها.",
   "bot.file_downloading": "⏳ جارٍ تنزيل الملف...",
   "bot.files_downloading": "⏳ جارٍ تنزيل الملفات...",
   "bot.file_too_large": "⚠️ حجم الملف أكبر من الحد المسموح ({maxSizeMb}MB)",

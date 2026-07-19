@@ -184,4 +184,18 @@ describe("app/start-bot-app", () => {
     await flushBackgroundTasks();
     expect(mocked.notifyOpencodeReadyIfHealthyMock).toHaveBeenCalledWith("startup");
   });
+
+  it("does not start background services when Telegram preflight fails", async () => {
+    const bot = createBot();
+    bot.api.getWebhookInfo.mockRejectedValue(new Error("network unavailable"));
+    mocked.createBotMock.mockReturnValue(bot);
+
+    await expect(startBotApp()).rejects.toThrow("network unavailable");
+
+    expect(bot.start).not.toHaveBeenCalled();
+    expect(mocked.scheduledTaskInitializeMock).not.toHaveBeenCalled();
+    expect(mocked.autoRestartStartMock).not.toHaveBeenCalled();
+    expect(mocked.scheduledTaskShutdownMock).toHaveBeenCalledTimes(1);
+    expect(mocked.autoRestartStopMock).toHaveBeenCalledTimes(1);
+  });
 });

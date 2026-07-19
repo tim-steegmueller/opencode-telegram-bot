@@ -96,6 +96,8 @@ export const fr: I18nDictionary = {
   "bot.photo_download_error": "🔴 Impossible de télécharger la photo",
   "bot.photo_no_caption":
     "💡 Conseil : ajoutez une légende pour décrire ce que vous voulez faire avec cette photo.",
+  "bot.photo_waiting_for_prompt":
+    "📎 Photo enregistrée. Envoyez du texte ou un message vocal dans les {minutes} minutes pour l'utiliser.",
   "bot.file_downloading": "⏳ Téléchargement du fichier...",
   "bot.files_downloading": "⏳ Téléchargement des fichiers...",
   "bot.file_too_large": "⚠️ Le fichier est trop volumineux (max {maxSizeMb}MB)",

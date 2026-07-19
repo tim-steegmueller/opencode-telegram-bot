@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "grammy";
 import { handlePhotoMessage, type PhotoHandlerDeps } from "../../../src/bot/handlers/photo-handler.js";
 import { t } from "../../../src/i18n/index.js";
+import {
+  __resetPendingAttachmentsForTests,
+  getPendingAttachments,
+} from "../../../src/app/services/pending-attachment-service.js";
 
 function createPhotoContext(caption = "Describe this"): { ctx: Context; replyMock: ReturnType<typeof vi.fn> } {
   const replyMock = vi.fn().mockResolvedValue({ message_id: 100 });
@@ -49,6 +53,7 @@ function createDeps(overrides: Partial<PhotoHandlerDeps> = {}): {
 describe("bot/handlers/photo-handler", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    __resetPendingAttachmentsForTests();
   });
 
   it("downloads the largest photo and sends it as a file part", async () => {
@@ -85,5 +90,37 @@ describe("bot/handlers/photo-handler", () => {
     expect(replyMock).toHaveBeenCalledWith(t("bot.photo_model_no_image"));
     expect(downloadMock).not.toHaveBeenCalled();
     expect(processPromptMock).toHaveBeenCalledWith(ctx, "Use this caption", deps);
+  });
+
+  it("passes photos to AGY without querying OpenCode model capabilities", async () => {
+    const { ctx } = createPhotoContext("Review this UI");
+    const { deps, processPromptMock, getCapabilitiesMock } = createDeps({
+      getAssistantMode: () => "agy",
+    });
+
+    await handlePhotoMessage(ctx, deps);
+
+    expect(getCapabilitiesMock).not.toHaveBeenCalled();
+    expect(processPromptMock).toHaveBeenCalledWith(
+      ctx,
+      "Review this UI",
+      deps,
+      [expect.objectContaining({ type: "file", mime: "image/jpeg" })],
+    );
+  });
+
+  it("holds a captionless photo for the next prompt", async () => {
+    const { ctx, replyMock } = createPhotoContext("");
+    const { deps, processPromptMock } = createDeps();
+
+    await handlePhotoMessage(ctx, deps);
+
+    expect(processPromptMock).not.toHaveBeenCalled();
+    expect(getPendingAttachments(777)).toEqual([
+      expect.objectContaining({ type: "file", mime: "image/jpeg", filename: "photo.jpg" }),
+    ]);
+    expect(replyMock).toHaveBeenCalledWith(
+      t("bot.photo_waiting_for_prompt", { minutes: "10" }),
+    );
   });
 });

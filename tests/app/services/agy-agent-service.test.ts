@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { access } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
@@ -84,6 +85,45 @@ describe("app/services/agy-agent-service", () => {
         stdio: ["ignore", "pipe", "pipe"],
       }),
     );
+  });
+
+  it("writes Telegram attachments for AGY and removes them after the run", async () => {
+    process.env.AGY_CLI_PATH = "/tmp/fake-agy";
+    mocked.spawnMock.mockImplementation(() => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+
+      setTimeout(() => child.emit("close", 0, null), 0);
+      return child;
+    });
+
+    const { runAgyAgentPrompt } = await import("../../../src/app/services/agy-agent-service.js");
+    await runAgyAgentPrompt({
+      prompt: "Review the screenshot",
+      projectDirectory: "/tmp/project",
+      attachments: [
+        {
+          type: "file",
+          mime: "image/png",
+          filename: "../screen.png",
+          url: "data:image/png;base64,aW1hZ2UtYnl0ZXM=",
+        },
+      ],
+    });
+
+    const args = mocked.spawnMock.mock.calls[0]?.[1] as string[];
+    const attachmentDirectory = args[3];
+    const prompt = args.at(-1) ?? "";
+
+    expect(attachmentDirectory).toMatch(/opencode-telegram-agy-/);
+    expect(prompt).toContain(`${attachmentDirectory}/1-screen.png`);
+    await expect(access(attachmentDirectory)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("extracts safe activity updates from AGY log and conversation text", async () => {

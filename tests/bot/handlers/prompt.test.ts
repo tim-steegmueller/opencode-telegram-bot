@@ -5,6 +5,11 @@ import {
   processUserPrompt,
   type ProcessPromptDeps,
 } from "../../../src/bot/handlers/prompt.js";
+import {
+  __resetPendingAttachmentsForTests,
+  getPendingAttachments,
+  storePendingAttachments,
+} from "../../../src/app/services/pending-attachment-service.js";
 
 const mocked = vi.hoisted(() => ({
   currentProject: { id: "project-1", worktree: "D:\\Projects\\Repo" },
@@ -189,6 +194,7 @@ function getScheduledBackgroundTask(): {
 
 describe("bot/handlers/prompt", () => {
   beforeEach(() => {
+    __resetPendingAttachmentsForTests();
     mocked.currentProject = { id: "project-1", worktree: "D:\\Projects\\Repo" };
     mocked.currentSession = {
       id: "session-1",
@@ -309,6 +315,61 @@ describe("bot/handlers/prompt", () => {
         onProgress: expect.any(Function),
       }),
     );
+  });
+
+  it("passes image attachments to AGY agent mode", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.storedModel = {
+      providerID: "antigravity",
+      modelID: "gemini-3.5-flash-high",
+      variant: "default",
+    };
+    const attachment = {
+      type: "file",
+      mime: "image/png",
+      filename: "screen.png",
+      url: "data:image/png;base64,aW1hZ2U=",
+    } as const;
+
+    const handled = await processUserPrompt(
+      createContext(),
+      "Review this UI",
+      createDeps(),
+      [attachment],
+    );
+
+    expect(handled).toBe(true);
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+    expect(mocked.runAgyAgentPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [attachment] }),
+    );
+  });
+
+  it("uses and clears a pending photo with the next AGY prompt", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.storedModel = {
+      providerID: "antigravity",
+      modelID: "gemini-3.5-flash-high",
+      variant: "default",
+    };
+    const attachment = {
+      type: "file",
+      mime: "image/png",
+      filename: "screen.png",
+      url: "data:image/png;base64,aW1hZ2U=",
+    } as const;
+    storePendingAttachments(777, [attachment]);
+
+    const handled = await processUserPrompt(createContext(), "Fix this layout", createDeps());
+
+    expect(handled).toBe(true);
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+    expect(mocked.runAgyAgentPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [attachment] }),
+    );
+    expect(getPendingAttachments(777)).toEqual([]);
   });
 
   it("uses OpenCode when AGY mode is enabled but the selected model is not antigravity", async () => {

@@ -88,6 +88,8 @@ export const en = {
   "bot.photo_model_no_image": "⚠️ Current model doesn't support image input. Sending text only.",
   "bot.photo_download_error": "🔴 Failed to download photo",
   "bot.photo_no_caption": "💡 Tip: Add a caption to describe what you want to do with this photo.",
+  "bot.photo_waiting_for_prompt":
+    "📎 Photo saved. Send text or a voice message within {minutes} minutes to use it.",
   "bot.file_downloading": "⏳ Downloading file...",
   "bot.files_downloading": "⏳ Downloading files...",
   "bot.file_too_large": "⚠️ File is too large (max {maxSizeMb}MB)",
