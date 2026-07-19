@@ -33,7 +33,7 @@ describe("app/services/cursor-agent-service", () => {
     mocked.spawnMock.mockImplementation(() => {
       const child = createChild();
       setTimeout(() => {
-        child.stdout.emit("data", Buffer.from("Cursor result\n"));
+        child.stdout.emit("data", Buffer.from("wal\nCursor result\n"));
         child.emit("close", 0, null);
       }, 0);
       return child;

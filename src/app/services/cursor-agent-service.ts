@@ -95,6 +95,15 @@ function buildPrompt(prompt: string, filePaths: string[]): string {
   return prompt.trim() ? `${prompt}\n\n${instruction}` : instruction;
 }
 
+function normalizeCursorOutput(output: string): string {
+  const trimmed = output.trim();
+  const lines = trimmed.split(/\r?\n/);
+  if (lines.length > 1 && lines[0]?.trim().toLowerCase() === "wal") {
+    return lines.slice(1).join("\n").trim();
+  }
+  return trimmed;
+}
+
 function runCursorCommand(
   args: string[],
   options: { cwd?: string; timeoutMs: number; maxBuffer: number },
@@ -226,7 +235,7 @@ export async function executeCursorAgentPrompt(
       maxBuffer: MAX_BUFFER_BYTES,
     });
     return {
-      output: stdout.trim() || stderr.trim() || "(Cursor finished without output.)",
+      output: normalizeCursorOutput(stdout) || stderr.trim() || "(Cursor finished without output.)",
       modelName,
     };
   } finally {
