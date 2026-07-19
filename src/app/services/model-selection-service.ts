@@ -1,4 +1,4 @@
-import { getCurrentModel, setCurrentModel } from "../stores/settings-store.js";
+import { getAssistantMode, getCurrentModel, setCurrentModel } from "../stores/settings-store.js";
 import { config } from "../../config.js";
 import { opencodeClient } from "../../opencode/client.js";
 import { logger } from "../../utils/logger.js";
@@ -339,6 +339,11 @@ export async function getModelSelectionLists(): Promise<ModelSelectionLists> {
 export async function reconcileStoredModelSelection(options?: {
   forceCatalogRefresh?: boolean;
 }): Promise<void> {
+  if (getAssistantMode() !== "opencode") {
+    logger.debug("[ModelManager] Skipping OpenCode model validation for external agent mode");
+    return;
+  }
+
   const currentModel = getCurrentModel();
 
   if (!currentModel?.providerID || !currentModel.modelID) {
@@ -428,9 +433,7 @@ export async function searchModels(query: string): Promise<FavoriteModel[]> {
     })
     .slice(0, SEARCH_RESULTS_LIMIT);
 
-  logger.debug(
-    `[ModelManager] Model search: query="${query}", results=${results.length}`,
-  );
+  logger.debug(`[ModelManager] Model search: query="${query}", results=${results.length}`);
 
   return results;
 }

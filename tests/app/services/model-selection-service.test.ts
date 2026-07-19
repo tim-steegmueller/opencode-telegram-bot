@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   configMock,
   providersMock,
+  getAssistantModeMock,
   getCurrentModelMock,
   setCurrentModelMock,
   setCurrentModelState,
@@ -35,6 +36,7 @@ const {
       },
     },
     providersMock: vi.fn(),
+    getAssistantModeMock: vi.fn(() => "opencode"),
     getCurrentModelMock,
     setCurrentModelMock,
     setCurrentModelState: (modelInfo?: {
@@ -70,6 +72,7 @@ vi.mock("../../../src/opencode/client.js", () => ({
 }));
 
 vi.mock("../../../src/app/stores/settings-store.js", () => ({
+  getAssistantMode: getAssistantModeMock,
   getCurrentModel: getCurrentModelMock,
   setCurrentModel: setCurrentModelMock,
 }));
@@ -122,6 +125,8 @@ describe("app/services/model-selection-service", () => {
     loggerDebugMock.mockReset();
 
     providersMock.mockReset();
+    getAssistantModeMock.mockReset();
+    getAssistantModeMock.mockReturnValue("opencode");
     providersMock.mockResolvedValue(
       createProvidersResponse({
         opencode: ["big-pickle"],
@@ -427,6 +432,25 @@ describe("app/services/model-selection-service", () => {
   });
 
   describe("reconcileStoredModelSelection", () => {
+    it("does not validate external agent models against the OpenCode catalog", async () => {
+      getAssistantModeMock.mockReturnValue("agy");
+      setCurrentModelState({
+        providerID: "antigravity",
+        modelID: "gemini-3.5-flash-high",
+        variant: "default",
+      });
+
+      await reconcileStoredModelSelection({ forceCatalogRefresh: true });
+
+      expect(providersMock).not.toHaveBeenCalled();
+      expect(setCurrentModelMock).not.toHaveBeenCalled();
+      expect(getCurrentModelState()).toEqual({
+        providerID: "antigravity",
+        modelID: "gemini-3.5-flash-high",
+        variant: "default",
+      });
+    });
+
     it("logs a short warning without stack when OpenCode server is unavailable", async () => {
       setCurrentModelState({ providerID: "openai", modelID: "gpt-4o", variant: "high" });
       providersMock.mockResolvedValueOnce({ data: null, error: new TypeError("fetch failed") });
