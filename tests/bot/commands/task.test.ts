@@ -5,6 +5,7 @@ import { handleTaskCallback } from "../../../src/bot/callbacks/scheduled-task-ca
 import { interactionManager } from "../../../src/app/managers/interaction-manager.js";
 import { taskCreationManager } from "../../../src/app/managers/scheduled-task-creation-manager.js";
 import { t } from "../../../src/i18n/index.js";
+import { logger } from "../../../src/utils/logger.js";
 
 const mocked = vi.hoisted(() => ({
   currentProject: {
@@ -262,6 +263,88 @@ describe("bot/commands/task", () => {
     expect(taskCreationManager.isActive()).toBe(false);
     expect(interactionManager.getSnapshot()).toBeNull();
   });
+
+  it.each(["native", "sdk", "opaque"])(
+    "keeps %s schedule failure payloads out of logs and replies",
+    async (kind) => {
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+      let error: unknown;
+      let metadata: { name: string; statusCode?: number; code?: string };
+      if (kind === "native") {
+        error = Object.assign(new Error("synthetic-private-schedule-and-token"), {
+          code: "ECONNRESET",
+        });
+        metadata = { name: "Error", code: "ECONNRESET" };
+      } else if (kind === "sdk") {
+        error = {
+          name: "APIError",
+          data: { statusCode: 429, message: "synthetic-private-schedule-and-token" },
+        };
+        metadata = { name: "APIError", statusCode: 429 };
+      } else {
+        const { proxy, revoke } = Proxy.revocable({}, {});
+        revoke();
+        error = proxy;
+        metadata = { name: "UnknownError" };
+      }
+      await taskCommand(createCommandContext() as never);
+      mocked.parseTaskScheduleMock.mockRejectedValue(error);
+      const ctx = createTextContext("synthetic-private-schedule", [201, 202]);
+
+      expect(await handleTaskTextInput(ctx)).toBe(true);
+
+      expect(warn).toHaveBeenCalledWith("[TaskCommand] Failed to parse task schedule", metadata);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("synthetic-");
+      expect(ctx.reply).toHaveBeenCalledWith(
+        t("task.parse_error", { message: t("common.unknown_error") }),
+        { reply_markup: expect.any(Object) },
+      );
+      expect(JSON.stringify(vi.mocked(ctx.reply).mock.calls)).not.toContain("synthetic-");
+      expect(taskCreationManager.isWaitingForSchedule()).toBe(true);
+      expect(interactionManager.getSnapshot()).toMatchObject({
+        kind: "task",
+        expectedInput: "text",
+        metadata: { stage: "awaiting_schedule" },
+      });
+      expect(mocked.addScheduledTaskMock).not.toHaveBeenCalled();
+      expect(mocked.registerTaskMock).not.toHaveBeenCalled();
+      expect(mocked.parseTaskScheduleMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["local", "provider"])(
+    "keeps German frequency hints restricted to %s validation failures",
+    async (origin) => {
+      vi.stubEnv("BOT_LOCALE", "de");
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+      await taskCommand(createCommandContext() as never);
+      if (origin === "local") {
+        mocked.parseTaskScheduleMock.mockResolvedValue({
+          kind: "cron",
+          cron: "*/2 * * * *",
+          timezone: "UTC",
+          summary: "Every 2 minutes",
+          nextRunAt: "2026-03-16T17:00:00.000Z",
+        });
+      } else {
+        mocked.parseTaskScheduleMock.mockRejectedValue(new Error(t("task.schedule_too_frequent")));
+      }
+      const ctx = createTextContext("synthetic-private-schedule", [201, 202]);
+
+      expect(await handleTaskTextInput(ctx)).toBe(true);
+
+      const message = origin === "local"
+        ? t("task.schedule_too_frequent", undefined, "de")
+        : t("common.unknown_error", undefined, "de");
+      expect(ctx.reply).toHaveBeenCalledWith(t("task.parse_error", { message }, "de"), {
+        reply_markup: expect.any(Object),
+      });
+      expect(warn).toHaveBeenCalledWith("[TaskCommand] Failed to parse task schedule", { name: "Error" });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(message);
+      expect(taskCreationManager.isWaitingForSchedule()).toBe(true);
+      expect(mocked.addScheduledTaskMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("stops task save when limit is reached before final step", async () => {
     await taskCommand(createCommandContext() as never);

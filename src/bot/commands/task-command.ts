@@ -17,8 +17,11 @@ import {
   type ScheduledTask,
 } from "../../app/types/scheduled-task.js";
 import { logger } from "../../utils/logger.js";
+import { getErrorLogMetadata } from "../../utils/error-log-metadata.js";
 
 const TASK_PROMPT_PREVIEW_LENGTH = 100;
+// Identity distinguishes a local validation failure from untrusted provider messages.
+const SCHEDULE_TOO_FREQUENT_ERROR = new Error("Schedule frequency is below five minutes");
 
 interface TaskInteractionMetadata {
   flow: "task";
@@ -121,7 +124,7 @@ function validateCronMinutesFrequency(cron: string): void {
   }
 
   if (minGap < 5) {
-    throw new Error(t("task.schedule_too_frequent"));
+    throw SCHEDULE_TOO_FREQUENT_ERROR;
   }
 }
 
@@ -374,8 +377,12 @@ export async function handleTaskTextInput(ctx: Context): Promise<boolean> {
       });
       taskCreationManager.setPromptRequestMessageId(previewMessage.message_id);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : t("common.unknown_error");
-      logger.warn(`[TaskCommand] Failed to parse task schedule: ${errorMessage}`);
+      const metadata = getErrorLogMetadata(error);
+      const errorMessage =
+        error === SCHEDULE_TOO_FREQUENT_ERROR
+          ? t("task.schedule_too_frequent")
+          : t("common.unknown_error");
+      logger.warn("[TaskCommand] Failed to parse task schedule", metadata);
       await deleteMessageIfPresent(ctx, flowState.scheduleRequestMessageId);
       taskCreationManager.resetSchedule();
       interactionManager.transition({

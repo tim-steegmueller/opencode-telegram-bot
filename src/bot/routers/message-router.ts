@@ -55,7 +55,7 @@ export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps
   });
 
   bot.hears(AGENT_MODE_BUTTON_TEXT_PATTERN, async (ctx) => {
-    logger.debug(`[Bot] Agent button pressed: ${ctx.message?.text}`);
+    logger.debug("[Bot] Agent button pressed");
 
     try {
       if (await blockMenuWhileInteractionActive(ctx)) {
@@ -70,7 +70,7 @@ export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps
   });
 
   bot.hears(MODEL_BUTTON_TEXT_PATTERN, async (ctx) => {
-    logger.debug(`[Bot] Model button pressed: ${ctx.message?.text}`);
+    logger.debug("[Bot] Model button pressed");
 
     try {
       if (await blockMenuWhileInteractionActive(ctx)) {
@@ -85,7 +85,7 @@ export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps
   });
 
   bot.hears(/^📊(?:\s|$)/, async (ctx) => {
-    logger.debug(`[Bot] Context button pressed: ${ctx.message?.text}`);
+    logger.debug("[Bot] Context button pressed");
 
     try {
       if (await blockMenuWhileInteractionActive(ctx)) {
@@ -100,7 +100,7 @@ export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps
   });
 
   bot.hears(VARIANT_BUTTON_TEXT_PATTERN, async (ctx) => {
-    logger.debug(`[Bot] Variant button pressed: ${ctx.message?.text}`);
+    logger.debug("[Bot] Variant button pressed");
 
     try {
       if (await blockMenuWhileInteractionActive(ctx)) {
@@ -119,7 +119,7 @@ export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps
     if (text) {
       const isCommand = text.startsWith("/");
       logger.debug(
-        `[Bot] Received text message: ${isCommand ? `command="${text}"` : `prompt (length=${text.length})`}, chatId=${ctx.chat.id}`,
+        `[Bot] Received text message: ${isCommand ? "command" : "prompt"} (length=${text.length}), chatId=${ctx.chat.id}`,
       );
     }
     await next();
