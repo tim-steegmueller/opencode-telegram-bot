@@ -3,6 +3,7 @@ import { getAssistantMode, getCurrentModel, setCurrentModel } from "../stores/se
 import { config } from "../../config.js";
 import { opencodeClient } from "../../opencode/client.js";
 import { logger } from "../../utils/logger.js";
+import { getErrorLogMetadata } from "../../utils/error-log-metadata.js";
 import type { ModelInfo, FavoriteModel, ModelSelectionLists } from "../types/model.js";
 import path from "node:path";
 
@@ -135,11 +136,11 @@ function logModelCatalogRefreshFailure(error: unknown, type: "error" | "exceptio
   }
 
   if (type === "error") {
-    logger.warn("[ModelManager] Failed to refresh model catalog:", error);
+    logger.warn("[ModelManager] Failed to refresh model catalog:", getErrorLogMetadata(error));
     return;
   }
 
-  logger.warn("[ModelManager] Error refreshing model catalog:", error);
+  logger.warn("[ModelManager] Error refreshing model catalog:", getErrorLogMetadata(error));
 }
 
 async function getValidModelKeys(options?: { force?: boolean }): Promise<Set<string> | null> {
@@ -444,7 +445,10 @@ export async function searchModels(query: string): Promise<FavoriteModel[]> {
     })
     .slice(0, SEARCH_RESULTS_LIMIT);
 
-  logger.debug(`[ModelManager] Model search: query="${query}", results=${results.length}`);
+  logger.debug("[ModelManager] Model search", {
+    queryLength: query.length,
+    resultCount: results.length,
+  });
 
   return results;
 }

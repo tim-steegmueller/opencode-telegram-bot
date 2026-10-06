@@ -3,6 +3,7 @@ import type { Bot, Context } from "grammy";
 import { commandsCommand } from "../../../src/bot/commands/command-catalog-command.js";
 import {
   handleCommandsCallback,
+  executeCommand,
   type ExecuteCommandDeps,
 } from "../../../src/bot/callbacks/command-catalog-callback-handler.js";
 import { handleCommandTextArguments } from "../../../src/bot/handlers/text-message-handler.js";
@@ -14,6 +15,7 @@ import {
 import { interactionManager } from "../../../src/app/managers/interaction-manager.js";
 import { t } from "../../../src/i18n/index.js";
 import { foregroundSessionState } from "../../../src/app/managers/foreground-session-state-manager.js";
+import { logger } from "../../../src/utils/logger.js";
 
 const mocked = vi.hoisted(() => ({
   currentProject: {
@@ -190,6 +192,31 @@ function createDeps(): ExecuteCommandDeps {
 }
 
 describe("bot/commands/commands", () => {
+  it.each(["api", "background"])("redacts %s command failures without changing dispatch", async (path) => {
+    const log = vi.spyOn(logger, "error").mockImplementation(() => {});
+    const error = { name: "APIError", data: { statusCode: 429, message: "synthetic-private-response" } };
+    if (path === "api") mocked.sessionCommandMock.mockResolvedValue({ error });
+    else mocked.sessionCommandMock.mockRejectedValue(error);
+    const ctx = createCommandContext(400);
+    const args = "synthetic-private-arguments";
+
+    await executeCommand(ctx, createDeps(), {
+      commandName: "poem", argumentsText: args, projectDirectory: "D:\\Projects\\Repo",
+    });
+
+    await vi.waitFor(() => expect(ctx.api.sendMessage).toHaveBeenCalledWith(777, t("commands.execute_error")));
+    expect(mocked.sessionCommandMock).toHaveBeenCalledTimes(1);
+    expect(mocked.sessionCommandMock).toHaveBeenCalledWith(expect.objectContaining({ arguments: args }));
+    expect(log).toHaveBeenCalledWith(
+      path === "api"
+        ? "[Commands] OpenCode API returned an error for session.command"
+        : "[Commands] session.command background task failed",
+      { sessionId: "session-1", command: "poem", argsLength: args.length },
+      { name: "APIError", statusCode: 429 },
+    );
+    expect(JSON.stringify(log.mock.calls)).not.toContain("synthetic-");
+    expect(foregroundSessionState.isBusy("session-1")).toBe(false);
+  });
   beforeEach(() => {
     interactionManager.clear("test_setup");
     foregroundSessionState.__resetForTests();

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Event } from "@opencode-ai/sdk/v2";
 import { summaryAggregator } from "../../../src/app/managers/summary-aggregation-manager.js";
+import { logger } from "../../../src/utils/logger.js";
 
 const mocked = vi.hoisted(() => ({
   getCurrentProjectMock: vi.fn(),
@@ -18,6 +19,61 @@ vi.mock("../../../src/app/stores/settings-store.js", async () => {
 });
 
 describe("summary/aggregator", () => {
+  it.each(["root", "child"])("keeps %s session failure contents out of telemetry", async (kind) => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const debug = vi.spyOn(logger, "debug").mockImplementation(() => {});
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const error = vi.spyOn(logger, "error").mockImplementation(() => {});
+    const callback = vi.fn();
+    const childState = vi.fn();
+    summaryAggregator.setSession("session-1");
+    summaryAggregator.setOnSessionError(callback);
+    summaryAggregator.setOnSubagent(childState);
+    const sessionID = kind === "root" ? "session-1" : "child-1";
+    if (kind === "child") {
+      summaryAggregator.processEvent({
+        type: "session.created",
+        properties: {
+          info: {
+            id: sessionID,
+            parentID: "session-1",
+            title: "Child (@explore subagent)",
+            directory: "D:/repo",
+            projectID: "p1",
+            version: "1",
+            time: { created: Date.now() },
+          },
+        },
+      } as unknown as Event);
+    }
+    const message = "synthetic-private-session-error";
+    summaryAggregator.processEvent({
+      type: "session.error",
+      properties: {
+        sessionID,
+        error: { name: "APIError", data: { statusCode: 429, message } },
+      },
+    } as unknown as Event);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(warn).toHaveBeenCalledWith(
+      kind === "root" ? "[Aggregator] Session error" : "[Aggregator] Subagent session error",
+      { sessionId: sessionID },
+      { name: "APIError", statusCode: 429 },
+    );
+    expect(
+      JSON.stringify([warn.mock.calls, debug.mock.calls, info.mock.calls, error.mock.calls]),
+    ).not.toContain("synthetic-");
+    if (kind === "root") expect(callback).toHaveBeenCalledWith(sessionID, message);
+    else
+      expect(childState.mock.lastCall?.[1]).toContainEqual(
+        expect.objectContaining({
+          sessionId: sessionID,
+          status: "error",
+          terminalMessage: message,
+        }),
+      );
+  });
   beforeEach(() => {
     mocked.getCurrentProjectMock.mockReset();
     mocked.getCurrentProjectMock.mockReturnValue({ id: "p1", worktree: "D:/repo", name: "repo" });
@@ -34,6 +90,162 @@ describe("summary/aggregator", () => {
     summaryAggregator.setOnSessionIdle(() => {});
     summaryAggregator.setOnSessionError(() => {});
     summaryAggregator.setOnSessionRetry(() => {});
+    summaryAggregator.setOnQuestion(() => {});
+  });
+
+  it.each(["session-1", "unrelated-session"])(
+    "keeps question.asked contents out of telemetry for %s",
+    async (sessionID) => {
+      const logs = ["debug", "info", "warn", "error"].map((level) =>
+        vi.spyOn(logger, level as "debug" | "info" | "warn" | "error").mockImplementation(() => {}),
+      );
+      const onQuestion = vi.fn();
+      summaryAggregator.setSession("session-1");
+      summaryAggregator.setOnQuestion(onQuestion);
+      const questions = [
+        {
+          header: "synthetic-private-header",
+          question: "synthetic-private-question",
+          options: [
+            { label: "synthetic-private-option", description: "synthetic-private-description" },
+          ],
+        },
+      ];
+
+      summaryAggregator.processEvent({
+        type: "question.asked",
+        properties: {
+          id: "question-1",
+          sessionID,
+          questions,
+        },
+      } as unknown as Event);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(JSON.stringify(logs.map((log) => log.mock.calls))).not.toContain("synthetic-");
+      if (sessionID === "session-1") {
+        expect(onQuestion).toHaveBeenCalledExactlyOnceWith(questions, "question-1", sessionID);
+        expect(onQuestion.mock.calls[0][0]).toBe(questions);
+      } else expect(onQuestion).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["question", "running"],
+    ["question", "completed"],
+    ["bash", "completed"],
+  ])("keeps %s %s tool payloads out of telemetry", (tool, status) => {
+    const logs = ["debug", "info", "warn", "error"].map((level) =>
+      vi.spyOn(logger, level as "debug" | "info" | "warn" | "error").mockImplementation(() => {}),
+    );
+    const onRootToolUpdate = vi.fn();
+    const onTool = vi.fn();
+    summaryAggregator.setSession("session-1");
+    summaryAggregator.setOnRootToolUpdate(onRootToolUpdate);
+    summaryAggregator.setOnTool(onTool);
+    const state = {
+      status,
+      title: "synthetic-private-title",
+      output: "synthetic-private-output",
+      input: {
+        command: "synthetic-private-command",
+        questions: [
+          {
+            header: "synthetic-private-header",
+            question: "synthetic-private-question",
+            options: [
+              { label: "synthetic-private-option", description: "synthetic-private-description" },
+            ],
+          },
+        ],
+      },
+      metadata: { text: "synthetic-private-metadata" },
+    };
+
+    summaryAggregator.processEvent({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "message-1",
+          sessionID: "session-1",
+          role: "assistant",
+          time: { created: Date.now() },
+        },
+      },
+    } as unknown as Event);
+    summaryAggregator.processEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "part-1",
+          sessionID: "session-1",
+          messageID: "message-1",
+          type: "tool",
+          callID: "call-1",
+          tool,
+          state,
+        },
+      },
+    } as unknown as Event);
+
+    expect(JSON.stringify(logs.map((log) => log.mock.calls))).not.toContain("synthetic-");
+    expect(onRootToolUpdate).toHaveBeenCalledTimes(1);
+    expect(onRootToolUpdate.mock.calls[0][0]).toMatchObject({
+      tool,
+      state,
+      input: state.input,
+      title: state.title,
+      metadata: state.metadata,
+    });
+    expect(onRootToolUpdate.mock.calls[0][0].state).toBe(state);
+    if (status === "completed") {
+      expect(onTool).toHaveBeenCalledTimes(1);
+      expect(onTool.mock.calls[0][0].state).toBe(state);
+    } else expect(onTool).not.toHaveBeenCalled();
+  });
+
+  it("keeps session metadata and retry messages out of telemetry while preserving callbacks", async () => {
+    const logs = ["debug", "info", "warn", "error"].map((level) =>
+      vi.spyOn(logger, level as "debug" | "info" | "warn" | "error").mockImplementation(() => {}),
+    );
+    const onRetry = vi.fn();
+    summaryAggregator.setSession("session-1");
+    summaryAggregator.setOnSessionRetry(onRetry);
+    summaryAggregator.processEvent({
+      type: "session.created",
+      properties: {
+        info: {
+          id: "session-1",
+          title: "synthetic-private-title",
+          directory: "synthetic-private-directory",
+          projectID: "p1",
+          version: "1",
+          time: { created: Date.now() },
+        },
+      },
+    } as unknown as Event);
+    const status = {
+      type: "retry",
+      attempt: 2,
+      message: "synthetic-private-retry-error",
+      next: 1772203141283,
+    };
+    summaryAggregator.processEvent({
+      type: "session.status",
+      properties: {
+        sessionID: "session-1",
+        status,
+      },
+    } as unknown as Event);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(JSON.stringify(logs.map((log) => log.mock.calls))).not.toContain("synthetic-");
+    expect(onRetry).toHaveBeenCalledExactlyOnceWith({
+      sessionId: "session-1",
+      attempt: status.attempt,
+      message: status.message,
+      next: status.next,
+    });
   });
 
   it("invokes onCleared callback when aggregator is cleared", () => {

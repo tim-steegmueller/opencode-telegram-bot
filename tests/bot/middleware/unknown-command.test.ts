@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Context, NextFunction } from "grammy";
 import { unknownCommandMiddleware } from "../../../src/bot/middleware/unknown-command.js";
 import { t } from "../../../src/i18n/index.js";
+import { logger } from "../../../src/utils/logger.js";
 
 function createTextContext(text: string): Context {
   return {
@@ -11,6 +12,18 @@ function createTextContext(text: string): Context {
 }
 
 describe("unknownCommandMiddleware", () => {
+  it("does not log arbitrary unknown command tokens", async () => {
+    const debug = vi.spyOn(logger, "debug").mockImplementation(() => {});
+    const ctx = createTextContext("/synthetic-private-token argument");
+    const next = vi.fn().mockResolvedValue(undefined);
+
+    await unknownCommandMiddleware(ctx, next);
+
+    expect(JSON.stringify(debug.mock.calls)).not.toContain("synthetic-");
+    expect(debug).toHaveBeenCalledWith("[Bot] Unknown slash command received", { tokenLength: 24 });
+    expect(ctx.reply).toHaveBeenCalledWith(t("bot.unknown_command", { command: "/synthetic-private-token" }));
+    expect(next).not.toHaveBeenCalled();
+  });
   it("replies for unknown slash command in idle flow", async () => {
     const ctx = createTextContext("/foobar");
     const next: NextFunction = vi.fn().mockResolvedValue(undefined);

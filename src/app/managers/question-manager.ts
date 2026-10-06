@@ -103,7 +103,7 @@ class QuestionManager {
 
   setCustomAnswer(questionIndex: number, answer: string): void {
     logger.debug(
-      `[QuestionManager] Custom answer received for question ${questionIndex}: ${answer}`,
+      `[QuestionManager] Custom answer received for question ${questionIndex}: length=${answer.length}`,
     );
     this.state.customAnswers.set(questionIndex, answer);
   }

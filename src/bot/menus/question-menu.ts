@@ -6,6 +6,7 @@ import { getCurrentSession } from "../../app/services/session-service.js";
 import { summaryAggregator } from "../../app/managers/summary-aggregation-manager.js";
 import { interactionManager } from "../../app/managers/interaction-manager.js";
 import { logger } from "../../utils/logger.js";
+import { getErrorLogMetadata } from "../../utils/error-log-metadata.js";
 import { safeBackgroundTask } from "../../utils/safe-background-task.js";
 import { t } from "../../i18n/index.js";
 import { editRenderedBotPart, sendRenderedBotPart } from "../messages/telegram-text.js";
@@ -105,7 +106,7 @@ export async function updateQuestionMessage(ctx: Context): Promise<void> {
       },
     });
   } catch (err) {
-    logger.error("[QuestionHandler] Failed to update message:", err);
+    logger.error("[QuestionHandler] Failed to update message:", getErrorLogMetadata(err));
   }
 }
 
@@ -117,7 +118,10 @@ export async function showCurrentQuestion(bot: Context["api"], chatId: number): 
     return;
   }
 
-  logger.debug(`[QuestionHandler] Showing question: ${question.header} - ${question.question}`);
+  logger.debug("[QuestionHandler] Showing question", {
+    questionIndex: questionManager.getCurrentIndex(),
+    optionCount: question.options.length,
+  });
 
   const part = formatQuestionDetailsPart(question);
   const keyboard = buildQuestionKeyboard(
@@ -152,7 +156,7 @@ export async function showCurrentQuestion(bot: Context["api"], chatId: number): 
     questionManager.clear();
     clearQuestionInteraction("question_message_send_failed");
 
-    logger.error("[QuestionHandler] Failed to send question message:", err);
+    logger.error("[QuestionHandler] Failed to send question message:", getErrorLogMetadata(err));
     throw err;
   }
 }
@@ -238,7 +242,10 @@ async function sendAllAnswersToAgent(bot: Context["api"], chatId: number): Promi
   logger.info(
     `[QuestionHandler] Sending all ${totalQuestions} answers to agent via question.reply: requestID=${requestID}`,
   );
-  logger.debug(`[QuestionHandler] Answers payload:`, JSON.stringify(allAnswers, null, 2));
+  logger.debug("[QuestionHandler] Answers prepared", {
+    questionCount: allAnswers.length,
+    answerCount: allAnswers.reduce((count, answers) => count + answers.length, 0),
+  });
 
   // CRITICAL: Fire-and-forget! Do not wait for question.reply to complete,
   // otherwise it may block subsequent updates
@@ -252,7 +259,10 @@ async function sendAllAnswersToAgent(bot: Context["api"], chatId: number): Promi
       }),
     onSuccess: ({ error }) => {
       if (error) {
-        logger.error("[QuestionHandler] Failed to send answers via question.reply:", error);
+        logger.error(
+          "[QuestionHandler] Failed to send answers via question.reply:",
+          getErrorLogMetadata(error),
+        );
         void bot.sendMessage(chatId, t("question.send_answers_error")).catch(() => {});
         return;
       }
@@ -366,7 +376,11 @@ function buildQuestionKeyboard(
     const buttonText = formatButtonText(option.label, icon);
     const callbackData = `question:select:${questionIndex}:${index}`;
 
-    logger.debug(`[QuestionHandler] Button ${index}: "${buttonText}" -> "${callbackData}"`);
+    logger.debug("[QuestionHandler] Option button built", {
+      questionIndex,
+      optionIndex: index,
+      isSelected,
+    });
 
     keyboard.text(buttonText, callbackData).row();
   });
@@ -382,7 +396,9 @@ function buildQuestionKeyboard(
   keyboard.text(t("question.button.cancel"), `question:cancel:${questionIndex}`);
   logger.debug(`[QuestionHandler] Added cancel button`);
 
-  logger.debug(`[QuestionHandler] Final keyboard: ${JSON.stringify(keyboard.inline_keyboard)}`);
+  logger.debug("[QuestionHandler] Final keyboard built", {
+    rowCount: keyboard.inline_keyboard.length,
+  });
 
   return keyboard;
 }

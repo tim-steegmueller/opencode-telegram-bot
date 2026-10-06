@@ -8,6 +8,7 @@ import {
 } from "../menus/question-menu.js";
 import { t } from "../../i18n/index.js";
 import { logger } from "../../utils/logger.js";
+import { getErrorLogMetadata } from "../../utils/error-log-metadata.js";
 
 function getCallbackMessageId(ctx: Context): number | null {
   const message = ctx.callbackQuery?.message;
@@ -27,7 +28,7 @@ export async function handleQuestionCallback(ctx: Context): Promise<boolean> {
     return false;
   }
 
-  logger.debug(`[QuestionHandler] Received callback: ${data}`);
+  logger.debug("[QuestionHandler] Received callback", { dataLength: data.length });
 
   if (!questionManager.isActive()) {
     clearQuestionInteraction("question_inactive_callback");
@@ -83,7 +84,7 @@ export async function handleQuestionCallback(ctx: Context): Promise<boolean> {
         break;
     }
   } catch (err) {
-    logger.error("[QuestionHandler] Error handling callback:", err);
+    logger.error("[QuestionHandler] Error handling callback:", getErrorLogMetadata(err));
     await ctx.answerCallbackQuery({
       text: t("question.processing_error_callback"),
       show_alert: true,
@@ -124,7 +125,9 @@ async function handleSelectOption(
     await ctx.answerCallbackQuery();
 
     const answer = questionManager.getSelectedAnswer(questionIndex);
-    logger.debug(`[QuestionHandler] Selected answer for question ${questionIndex}: ${answer}`);
+    logger.debug(
+      `[QuestionHandler] Selected answer for question ${questionIndex}: length=${answer.length}`,
+    );
 
     await ctx.deleteMessage().catch(() => {});
     await showNextQuestion(ctx);
@@ -147,7 +150,9 @@ async function handleSubmitAnswer(ctx: Context, questionIndex: number): Promise<
     return;
   }
 
-  logger.debug(`[QuestionHandler] Submit answer for question ${questionIndex}: ${answer}`);
+  logger.debug(
+    `[QuestionHandler] Submit answer for question ${questionIndex}: length=${answer.length}`,
+  );
 
   await ctx.answerCallbackQuery();
   await ctx.deleteMessage().catch(() => {});
@@ -190,7 +195,9 @@ export async function handleQuestionTextAnswer(ctx: Context): Promise<void> {
     return;
   }
 
-  logger.debug(`[QuestionHandler] Custom text answer for question ${currentIndex}: ${text}`);
+  logger.debug(
+    `[QuestionHandler] Custom text answer for question ${currentIndex}: length=${text.length}`,
+  );
 
   questionManager.setCustomAnswer(currentIndex, text);
   questionManager.clearCustomInput();

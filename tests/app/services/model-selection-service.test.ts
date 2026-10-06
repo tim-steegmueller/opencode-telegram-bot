@@ -557,6 +557,44 @@ describe("app/services/model-selection-service", () => {
   });
 
   describe("searchModels", () => {
+    it("keeps private search queries out of telemetry without changing results", async () => {
+      const query = "synthetic-private-model-query";
+      expect(await searchModels(query)).toEqual([]);
+      expect(loggerDebugMock).toHaveBeenCalledWith("[ModelManager] Model search", {
+        queryLength: query.length,
+        resultCount: 0,
+      });
+      expect(JSON.stringify(loggerDebugMock.mock.calls)).not.toContain("synthetic-");
+    });
+
+    it.each(["error", "exception"])(
+      "logs bounded provider %s metadata during search",
+      async (kind) => {
+        const failure = {
+          name: "APIError",
+          data: { statusCode: 429, message: "synthetic-private-provider-error" },
+        };
+        if (kind === "error") providersMock.mockResolvedValueOnce({ error: failure });
+        else providersMock.mockRejectedValueOnce(failure);
+
+        expect(await searchModels("synthetic-private-model-query")).toEqual([]);
+        expect(loggerWarnMock).toHaveBeenCalledWith(
+          kind === "error"
+            ? "[ModelManager] Failed to refresh model catalog:"
+            : "[ModelManager] Error refreshing model catalog:",
+          { name: "APIError", statusCode: 429 },
+        );
+        expect(
+          JSON.stringify([
+            loggerWarnMock.mock.calls,
+            loggerDebugMock.mock.calls,
+            loggerErrorMock.mock.calls,
+            loggerInfoMock.mock.calls,
+          ]),
+        ).not.toContain("synthetic-");
+      },
+    );
+
     it("returns matching models by case-insensitive substring", async () => {
       const results = await searchModels("gpt");
 

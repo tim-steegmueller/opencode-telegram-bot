@@ -22,6 +22,6 @@ export async function unknownCommandMiddleware(ctx: Context, next: NextFunction)
   }
 
   const commandToken = text.trim().split(/\s+/)[0];
-  logger.debug(`[Bot] Unknown slash command received: ${commandToken}`);
+  logger.debug("[Bot] Unknown slash command received", { tokenLength: commandToken.length });
   await ctx.reply(t("bot.unknown_command", { command: commandToken }));
 }

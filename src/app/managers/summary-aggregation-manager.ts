@@ -6,6 +6,7 @@ import type { Question } from "../types/question.js";
 import type { PermissionRequest } from "../types/permission.js";
 import type { FileChange } from "../types/summary.js";
 import { logger } from "../../utils/logger.js";
+import { getErrorLogMetadata } from "../../utils/error-log-metadata.js";
 import { getCurrentProject } from "../stores/settings-store.js";
 
 export interface SummaryInfo {
@@ -389,7 +390,7 @@ class SummaryAggregator {
     const sendTyping = () => {
       if (this.bot && this.chatId) {
         this.bot.api.sendChatAction(this.chatId, "typing").catch((err) => {
-          logger.error("Failed to send typing action:", err);
+          logger.error("Failed to send typing action:", getErrorLogMetadata(err));
         });
       }
     };
@@ -418,20 +419,13 @@ class SummaryAggregator {
       return;
     }
 
-    // Log all question-related events for debugging
+    // Keep event payloads out of telemetry; handlers log IDs and counts.
     if (event.type.startsWith("question.")) {
-      logger.info(
-        `[Aggregator] Question event: ${event.type}`,
-        JSON.stringify(event.properties, null, 2),
-      );
+      logger.info(`[Aggregator] Question event: ${event.type}`);
     }
 
-    // Log all session-related events for debugging
     if (event.type.startsWith("session.")) {
-      logger.debug(
-        `[Aggregator] Session event: ${event.type}`,
-        JSON.stringify(event.properties, null, 2),
-      );
+      logger.debug(`[Aggregator] Session event: ${event.type}`);
     }
 
     switch (event.type) {
@@ -516,7 +510,7 @@ class SummaryAggregator {
       try {
         this.onClearedCallback();
       } catch (err) {
-        logger.error("[Aggregator] Error in clear callback:", err);
+        logger.error("[Aggregator] Error in clear callback:", getErrorLogMetadata(err));
       }
     }
   }
@@ -1341,7 +1335,9 @@ class SummaryAggregator {
       }
 
       if (part.tool === "question") {
-        logger.debug(`[Aggregator] Question tool part update:`, JSON.stringify(part, null, 2));
+        logger.debug(
+          `[Aggregator] Question tool part update: callID=${part.callID}, status=${state.status}`,
+        );
 
         // If the question tool fails, clear the active poll
         // so the agent can recreate it with corrected data
@@ -1362,10 +1358,7 @@ class SummaryAggregator {
       }
 
       if ("status" in state && state.status === "completed") {
-        logger.debug(
-          `[Aggregator] Tool completed: callID=${part.callID}, tool=${part.tool}`,
-          JSON.stringify(state, null, 2),
-        );
+        logger.debug(`[Aggregator] Tool completed: callID=${part.callID}, tool=${part.tool}`);
 
         const completedKey = `completed-${part.callID}`;
 
@@ -1392,7 +1385,7 @@ class SummaryAggregator {
           };
 
           logger.debug(
-            `[Aggregator] Sending tool notification to Telegram: tool=${part.tool}, title=${title || "N/A"}`,
+            `[Aggregator] Sending tool notification to Telegram: tool=${part.tool}, titleLength=${title?.length ?? 0}`,
           );
 
           if (this.onToolCallback) {
@@ -1401,7 +1394,7 @@ class SummaryAggregator {
 
           if (preparedFileContext.fileData && this.onToolFileCallback) {
             logger.debug(
-              `[Aggregator] Sending ${part.tool} file: ${preparedFileContext.fileData.filename} (${preparedFileContext.fileData.buffer.length} bytes)`,
+              `[Aggregator] Sending ${part.tool} file: filenameLength=${preparedFileContext.fileData.filename.length}, bytes=${preparedFileContext.fileData.buffer.length}`,
             );
             this.onToolFileCallback({
               ...toolData,
@@ -1686,7 +1679,7 @@ class SummaryAggregator {
     const callback = this.onExternalUserInputCallback;
     setImmediate(() => {
       Promise.resolve(callback(sessionId, messageId, messageText)).catch((err) => {
-        logger.error("[Aggregator] Error in external user input callback:", err);
+        logger.error("[Aggregator] Error in external user input callback:", getErrorLogMetadata(err));
       });
     });
   }
@@ -1714,7 +1707,7 @@ class SummaryAggregator {
     try {
       this.onPartialCallback(sessionId, messageId, messageText);
     } catch (err) {
-      logger.error("[Aggregator] Error in partial callback:", err);
+      logger.error("[Aggregator] Error in partial callback:", getErrorLogMetadata(err));
     }
   }
 
@@ -1934,7 +1927,7 @@ class SummaryAggregator {
     const message = status.message?.trim() || "Unknown retry error";
 
     logger.warn(
-      `[Aggregator] Session retry: session=${sessionID}, attempt=${status.attempt ?? "n/a"}, message=${message}`,
+      `[Aggregator] Session retry: session=${sessionID}, attempt=${status.attempt ?? "n/a"}, messageLength=${message.length}`,
     );
 
     setImmediate(() => {
@@ -2020,7 +2013,11 @@ class SummaryAggregator {
       error?.data?.message || error?.message || error?.name || "Unknown session error";
 
     if (sessionID && this.isTrackedChildSession(sessionID)) {
-      logger.warn(`[Aggregator] Subagent session error: ${sessionID}: ${message}`);
+      logger.warn(
+        "[Aggregator] Subagent session error",
+        { sessionId: sessionID },
+        getErrorLogMetadata(error),
+      );
       this.setSubagentTerminalStatus(sessionID, "error", message);
       return;
     }
@@ -2029,7 +2026,7 @@ class SummaryAggregator {
       return;
     }
 
-    logger.warn(`[Aggregator] Session error: ${sessionID}: ${message}`);
+    logger.warn("[Aggregator] Session error", { sessionId: sessionID }, getErrorLogMetadata(error));
     this.stopTypingIndicator();
 
     if (this.onSessionErrorCallback) {
@@ -2062,7 +2059,7 @@ class SummaryAggregator {
         try {
           await callback(questions as Question[], id, sessionID);
         } catch (err) {
-          logger.error("[Aggregator] Error in question callback:", err);
+          logger.error("[Aggregator] Error in question callback:", getErrorLogMetadata(err));
         }
       });
     }
@@ -2119,10 +2116,10 @@ class SummaryAggregator {
       const callback = this.onPermissionCallback;
       try {
         void Promise.resolve(callback(request as PermissionRequest)).catch((err) => {
-          logger.error("[Aggregator] Error in permission callback:", err);
+          logger.error("[Aggregator] Error in permission callback:", getErrorLogMetadata(err));
         });
       } catch (err) {
-        logger.error("[Aggregator] Error in permission callback:", err);
+        logger.error("[Aggregator] Error in permission callback:", getErrorLogMetadata(err));
       }
     }
   }
@@ -2151,7 +2148,7 @@ class SummaryAggregator {
         try {
           await callback(sessionID, requestID);
         } catch (err) {
-          logger.error("[Aggregator] Error in permission replied callback:", err);
+          logger.error("[Aggregator] Error in permission replied callback:", getErrorLogMetadata(err));
         }
       });
     }

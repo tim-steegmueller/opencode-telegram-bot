@@ -7,6 +7,7 @@ import { formatModelForDisplay } from "../../app/types/model.js";
 import type { ModelInfo } from "../../app/types/model.js";
 import { interactionManager } from "../../app/managers/interaction-manager.js";
 import { logger } from "../../utils/logger.js";
+import { getErrorLogMetadata } from "../../utils/error-log-metadata.js";
 import { t } from "../../i18n/index.js";
 import { createMainKeyboard } from "../keyboards/main-reply-keyboard.js";
 import { keyboardManager } from "../keyboards/keyboard-manager.js";
@@ -262,7 +263,7 @@ export async function handleModelSelect(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  logger.debug(`[ModelHandler] Received callback: ${callbackQuery.data}`);
+  logger.debug("[ModelHandler] Received callback", { dataLength: callbackQuery.data.length });
 
   try {
     if (
@@ -283,7 +284,9 @@ export async function handleModelSelect(ctx: Context): Promise<boolean> {
       modelInfo ?? (shouldUseLegacyFallback ? parseLegacyModelCallback(callbackQuery.data) : null);
 
     if (!resolvedModelInfo) {
-      logger.error(`[ModelHandler] Invalid callback data format: ${callbackQuery.data}`);
+      logger.error("[ModelHandler] Invalid callback data format", {
+        dataLength: callbackQuery.data.length,
+      });
       clearActiveInlineMenu("model_select_invalid_callback");
       await ctx.answerCallbackQuery({ text: t("model.change_error_callback") }).catch(() => {});
       return true;
@@ -295,7 +298,7 @@ export async function handleModelSelect(ctx: Context): Promise<boolean> {
     return true;
   } catch (err) {
     clearActiveInlineMenu("model_select_error");
-    logger.error("[ModelHandler] Error handling model select:", err);
+    logger.error("[ModelHandler] Error handling model select:", getErrorLogMetadata(err));
     await ctx.answerCallbackQuery({ text: t("model.change_error_callback") }).catch(() => {});
     return false;
   }
@@ -355,7 +358,7 @@ export async function handleModelSearchTextInput(ctx: Context): Promise<boolean>
     return false;
   }
 
-  logger.debug(`[ModelHandler] Model search query: "${text}"`);
+  logger.debug("[ModelHandler] Model search query received", { queryLength: text.length });
 
   try {
     const results =
@@ -400,7 +403,7 @@ export async function handleModelSearchTextInput(ctx: Context): Promise<boolean>
 
     return true;
   } catch (err) {
-    logger.error("[ModelHandler] Model search error:", err);
+    logger.error("[ModelHandler] Model search error:", getErrorLogMetadata(err));
     await ctx.reply(t("model.search.error"));
     interactionManager.clear("model_search_error");
     return true;
@@ -477,7 +480,7 @@ export async function handleModelSearchResults(ctx: Context): Promise<boolean> {
   // Backward compatibility for callbacks from already-rendered search result messages.
   if (data.startsWith("model:")) {
     if (isShortModelCallback(data)) {
-      logger.error(`[ModelHandler] Invalid search result callback data: ${data}`);
+      logger.error("[ModelHandler] Invalid search result callback data", { dataLength: data.length });
       await ctx.answerCallbackQuery({ text: t("model.change_error_callback") }).catch(() => {});
       return true;
     }

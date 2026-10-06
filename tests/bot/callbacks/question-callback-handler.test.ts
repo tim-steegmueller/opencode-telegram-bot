@@ -9,6 +9,9 @@ import {
 } from "../../../src/bot/callbacks/question-callback-handler.js";
 import type { Question } from "../../../src/app/types/question.js";
 import { t } from "../../../src/i18n/index.js";
+import { logger } from "../../../src/utils/logger.js";
+import { opencodeClient } from "../../../src/opencode/client.js";
+import * as settingsStore from "../../../src/app/stores/settings-store.js";
 
 const QUESTION_ONE: Question = {
   header: "Q1",
@@ -84,6 +87,62 @@ describe("bot question menu/callbacks", () => {
   beforeEach(() => {
     questionManager.clear();
     interactionManager.clear("test_setup");
+  });
+
+  it.each(["custom", "single", "multiple"])(
+    "keeps %s question content out of logs while preserving the answer payload",
+    async (mode) => {
+      const debug = vi.spyOn(logger, "debug").mockImplementation(() => {});
+      vi.spyOn(settingsStore, "getCurrentProject").mockReturnValue({ id: "p1", worktree: "D:/repo" });
+      const reply = vi.spyOn(opencodeClient.question, "reply").mockResolvedValue({ data: true } as never);
+      const api = createApi([100, 101]);
+      questionManager.startQuestions([{
+        header: "synthetic-private-header",
+        question: "synthetic-private-question",
+        options: [{ label: "synthetic-private-option", description: "synthetic-private-description" }],
+        multiple: mode === "multiple",
+      }], "req-private");
+      await showCurrentQuestion(api, 123);
+      if (mode === "custom") {
+        await handleQuestionCallback(createCallbackContext("question:custom:0", 100, api));
+        await handleQuestionTextAnswer(createTextContext("synthetic-private-answer", api));
+      } else {
+        await handleQuestionCallback(createCallbackContext("question:select:0:0", 100, api));
+        if (mode === "multiple") {
+          await handleQuestionCallback(createCallbackContext("question:submit:0", 100, api));
+        }
+      }
+      await vi.waitFor(() => expect(reply).toHaveBeenCalledTimes(1));
+      expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+        requestID: "req-private",
+        answers: [[mode === "custom"
+          ? "synthetic-private-answer"
+          : "* synthetic-private-option: synthetic-private-description"]],
+      }));
+      expect(JSON.stringify(debug.mock.calls)).not.toContain("synthetic-");
+      expect(questionManager.isActive()).toBe(false);
+      expect(interactionManager.getSnapshot()).toBeNull();
+    },
+  );
+
+  it("logs bounded question.reply failure metadata without replaying answers", async () => {
+    const errorLog = vi.spyOn(logger, "error").mockImplementation(() => {});
+    vi.spyOn(settingsStore, "getCurrentProject").mockReturnValue({ id: "p1", worktree: "D:/repo" });
+    const reply = vi.spyOn(opencodeClient.question, "reply").mockResolvedValue({ error: {
+      name: "APIError", data: { statusCode: 429, message: "synthetic-private-response" },
+    } } as never);
+    const api = createApi([100, 101]);
+    questionManager.startQuestions([QUESTION_ONE], "req-private");
+    await showCurrentQuestion(api, 123);
+    await handleQuestionCallback(createCallbackContext("question:select:0:0", 100, api));
+
+    await vi.waitFor(() => expect(errorLog).toHaveBeenCalledWith(
+      "[QuestionHandler] Failed to send answers via question.reply:",
+      { name: "APIError", statusCode: 429 },
+    ));
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain("synthetic-");
+    expect(reply).toHaveBeenCalledTimes(1);
+    expect(api.sendMessage).toHaveBeenCalledWith(123, t("question.send_answers_error"));
   });
 
   it("shows question details and keyboard in one message", async () => {

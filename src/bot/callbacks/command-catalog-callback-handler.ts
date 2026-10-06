@@ -15,6 +15,7 @@ import { getStoredAgent, resolveProjectAgent } from "../../app/services/agent-se
 import { getStoredModel } from "../../app/services/model-selection-service.js";
 import { safeBackgroundTask } from "../../utils/safe-background-task.js";
 import { logger } from "../../utils/logger.js";
+import { getErrorLogMetadata } from "../../utils/error-log-metadata.js";
 import { t } from "../../i18n/index.js";
 import { foregroundSessionState } from "../../app/managers/foreground-session-state-manager.js";
 import { assistantRunState } from "../../app/managers/assistant-run-state-manager.js";
@@ -174,7 +175,7 @@ async function isSessionBusy(sessionId: string, directory: string): Promise<bool
     const { data, error } = await opencodeClient.session.status({ directory });
 
     if (error || !data) {
-      logger.warn("[Commands] Failed to check session status before command:", error);
+      logger.warn("[Commands] Failed to check session status before command:", getErrorLogMetadata(error));
       return false;
     }
 
@@ -185,7 +186,7 @@ async function isSessionBusy(sessionId: string, directory: string): Promise<bool
 
     return sessionStatus.type === "busy";
   } catch (err) {
-    logger.warn("[Commands] Error checking session status before command:", err);
+    logger.warn("[Commands] Error checking session status before command:", getErrorLogMetadata(err));
     return false;
   }
 }
@@ -305,12 +306,11 @@ export async function executeCommand(
         foregroundSessionState.markIdle(session.id);
         void markAttachedSessionIdle(session.id);
         assistantRunState.clearRun(session.id, "session_command_api_error");
-        logger.error("[Commands] OpenCode API returned an error for session.command", {
-          sessionId: session.id,
-          command: params.commandName,
-          args,
-        });
-        logger.error("[Commands] session.command error details:", error);
+        logger.error(
+          "[Commands] OpenCode API returned an error for session.command",
+          { sessionId: session.id, command: params.commandName, argsLength: args.length },
+          getErrorLogMetadata(error),
+        );
         void ctx.api.sendMessage(ctx.chat!.id, t("commands.execute_error")).catch(() => {});
         return;
       }
@@ -323,12 +323,11 @@ export async function executeCommand(
       foregroundSessionState.markIdle(session.id);
       void markAttachedSessionIdle(session.id);
       assistantRunState.clearRun(session.id, "session_command_background_error");
-      logger.error("[Commands] session.command background task failed", {
-        sessionId: session.id,
-        command: params.commandName,
-        args,
-      });
-      logger.error("[Commands] session.command background failure details:", error);
+      logger.error(
+        "[Commands] session.command background task failed",
+        { sessionId: session.id, command: params.commandName, argsLength: args.length },
+        getErrorLogMetadata(error),
+      );
       void ctx.api.sendMessage(ctx.chat!.id, t("commands.execute_error")).catch(() => {});
     },
   });
@@ -447,7 +446,7 @@ export async function handleCommandsCallback(
 
     return true;
   } catch (error) {
-    logger.error("[Commands] Error handling command callback:", error);
+    logger.error("[Commands] Error handling command callback:", getErrorLogMetadata(error));
     clearCommandsInteraction("commands_callback_error");
     await ctx.answerCallbackQuery({ text: t("callback.processing_error") }).catch(() => {});
     return true;

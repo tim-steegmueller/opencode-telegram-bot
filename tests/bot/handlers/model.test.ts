@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InlineKeyboard } from "grammy";
+import { logger } from "../../../src/utils/logger.js";
 
 const mocked = vi.hoisted(() => ({
   listAgyModelsMock: vi.fn(),
@@ -345,6 +346,20 @@ describe("bot model selection", () => {
   });
 
   describe("handleModelSearchTextInput", () => {
+    it("preserves the search query without logging its contents", async () => {
+      const debug = vi.spyOn(logger, "debug").mockImplementation(() => {});
+      mocked.interactionManagerGetSnapshotMock.mockReturnValue({
+        kind: "custom", metadata: { flow: "model-search", stage: "input" },
+      });
+      mocked.searchModelsMock.mockResolvedValue([]);
+      const text = "synthetic-private-query";
+
+      expect(await handleModelSearchTextInput(mockContext({ message: { text } }))).toBe(true);
+
+      expect(mocked.searchModelsMock).toHaveBeenCalledWith(text);
+      expect(debug).toHaveBeenCalledWith("[ModelHandler] Model search query received", { queryLength: text.length });
+      expect(JSON.stringify(debug.mock.calls)).not.toContain("synthetic-");
+    });
     it("returns false when no model-search interaction is active", async () => {
       mocked.interactionManagerGetSnapshotMock.mockReturnValue(null);
 
