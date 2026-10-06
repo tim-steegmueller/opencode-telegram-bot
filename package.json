@@ -34,6 +34,9 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
+  "allowScripts": {
+    "better-sqlite3@12.10.0": true
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/grinev/opencode-telegram-bot.git"
@@ -57,7 +60,7 @@
     "@grammyjs/menu": "^1.3.1",
     "@opencode-ai/sdk": "1.18.8",
     "@opencode/client": "2.0.23",
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "12.10.0",
     "dotenv": "^17.2.3",
     "grammy": "^1.39.2",
     "https-proxy-agent": "^7.0.6",

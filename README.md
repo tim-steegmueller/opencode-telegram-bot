@@ -426,6 +426,10 @@ Since the bot runs locally on your machine and connects to your local OpenCode s
 
 ### Running from Source
 
+Source installs use a pinned `better-sqlite3` version with a version-specific npm 12
+install-script approval. Node.js 20 requires a local C++ build toolchain because
+[upstream no longer publishes Node.js 20 prebuilds](https://github.com/WiseLibs/better-sqlite3/releases/tag/v12.10.0).
+
 ```bash
 git clone https://github.com/grinev/opencode-telegram-bot.git
 cd opencode-telegram-bot
