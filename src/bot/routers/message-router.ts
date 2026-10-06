@@ -5,9 +5,7 @@ import { questionManager } from "../../app/managers/question-manager.js";
 import { t } from "../../i18n/index.js";
 import { logger } from "../../utils/logger.js";
 import { handleTaskTextInput } from "../commands/task-command.js";
-import {
-  handleModelSearchTextInput,
-} from "../callbacks/model-selection-callback-handler.js";
+import { handleModelSearchTextInput } from "../callbacks/model-selection-callback-handler.js";
 import { handleQuestionTextAnswer } from "../callbacks/question-callback-handler.js";
 import { handleRenameTextAnswer } from "../callbacks/rename-callback-handler.js";
 import { handleContextButtonPress } from "../menus/context-control-menu.js";
@@ -16,9 +14,11 @@ import { showModelSelectionMenu } from "../menus/model-selection-menu.js";
 import { showVariantSelectionMenu } from "../menus/variant-selection-menu.js";
 import {
   AGENT_MODE_BUTTON_TEXT_PATTERN,
+  ENGINE_MODE_BUTTON_TEXT_PATTERN,
   MODEL_BUTTON_TEXT_PATTERN,
   VARIANT_BUTTON_TEXT_PATTERN,
 } from "../message-patterns.js";
+import { modeCommand } from "../commands/mode-command.js";
 import { handleDocumentMessage } from "../handlers/document-handler.js";
 import { createMediaGroupAttachmentMiddleware } from "../handlers/media-group-handler.js";
 import { handlePhotoMessage } from "../handlers/photo-handler.js";
@@ -47,6 +47,12 @@ async function blockMenuWhileInteractionActive(ctx: Context): Promise<boolean> {
 
 export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps): void {
   bot.on("message:text", unknownCommandMiddleware);
+
+  bot.hears(ENGINE_MODE_BUTTON_TEXT_PATTERN, async (ctx) => {
+    if (!(await blockMenuWhileInteractionActive(ctx))) {
+      await modeCommand(ctx);
+    }
+  });
 
   bot.hears(AGENT_MODE_BUTTON_TEXT_PATTERN, async (ctx) => {
     logger.debug(`[Bot] Agent button pressed: ${ctx.message?.text}`);
@@ -133,6 +139,18 @@ export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps
     await handleVoiceMessage(ctx, voicePromptDeps);
   });
 
+  bot.on("message:video", async (ctx) => {
+    logger.debug(`[Bot] Received video message, chatId=${ctx.chat.id}`);
+    deps.setTelegramContext(bot, ctx.chat.id);
+    await handleVoiceMessage(ctx, voicePromptDeps);
+  });
+
+  bot.on("message:video_note", async (ctx) => {
+    logger.debug(`[Bot] Received video note message, chatId=${ctx.chat.id}`);
+    deps.setTelegramContext(bot, ctx.chat.id);
+    await handleVoiceMessage(ctx, voicePromptDeps);
+  });
+
   bot.on(
     "message",
     createMediaGroupAttachmentMiddleware({
@@ -150,7 +168,10 @@ export function registerMessageRouter(bot: Bot<Context>, deps: MessageRouterDeps
   bot.on("message:document", async (ctx) => {
     logger.debug(`[Bot] Received document message, chatId=${ctx.chat.id}`);
     deps.setTelegramContext(bot, ctx.chat.id);
-    await handleDocumentMessage(ctx, { bot, ensureEventSubscription: deps.ensureEventSubscription });
+    await handleDocumentMessage(ctx, {
+      bot,
+      ensureEventSubscription: deps.ensureEventSubscription,
+    });
   });
 
   bot.on("message:text", async (ctx) => {

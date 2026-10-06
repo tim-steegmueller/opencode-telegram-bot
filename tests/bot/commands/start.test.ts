@@ -88,7 +88,7 @@ function createStartContext(): Context {
 describe("bot/commands/start-command", () => {
   beforeEach(() => {
     mocked.abortCurrentOperationMock.mockReset();
-    mocked.abortCurrentOperationMock.mockResolvedValue(undefined);
+    mocked.abortCurrentOperationMock.mockResolvedValue(true);
 
     mocked.clearSessionMock.mockReset();
     mocked.clearProjectMock.mockReset();
@@ -126,6 +126,17 @@ describe("bot/commands/start-command", () => {
     mocked.keyboardUpdateModelMock.mockReset();
     mocked.keyboardUpdateContextMock.mockReset();
     mocked.keyboardClearContextMock.mockReset();
+  });
+
+  it("preserves project/session and does not welcome after an unconfirmed stop", async () => {
+    mocked.abortCurrentOperationMock.mockResolvedValue(false);
+    const ctx = createStartContext();
+    await startCommand(ctx);
+    expect(mocked.clearSessionMock).not.toHaveBeenCalled();
+    expect(mocked.clearProjectMock).not.toHaveBeenCalled();
+    expect(mocked.keyboardClearContextMock).not.toHaveBeenCalled();
+    expect(mocked.pinnedClearMock).not.toHaveBeenCalled();
+    expect(ctx.reply).toHaveBeenCalledExactlyOnceWith(t("stop.warn_unconfirmed"));
   });
 
   it("stops active flow, resets project/session, and sends welcome message", async () => {

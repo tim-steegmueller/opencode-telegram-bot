@@ -1,3 +1,4 @@
+import { MODEL_CATALOG_CALLBACK, handleModelCatalogCallback } from "../menus/model-catalog-menu.js";
 import { Context, InlineKeyboard } from "grammy";
 import { getStoredAgent, resolveProjectAgent } from "../../app/services/agent-selection-service.js";
 import { searchModels, selectModel } from "../../app/services/model-selection-service.js";
@@ -17,6 +18,9 @@ import {
   MODEL_SEARCH_CALLBACK,
   MODEL_SEARCH_CANCEL_CALLBACK,
 } from "../menus/model-selection-menu.js";
+import { getAssistantMode } from "../../app/stores/settings-store.js";
+import { searchAgyModels } from "../../app/services/agy-model-service.js";
+import { searchCursorModels } from "../../app/services/cursor-agent-service.js";
 
 const MODEL_SEARCH_RESULT_CALLBACK_PREFIX = "model:result:";
 
@@ -180,15 +184,30 @@ function isShortModelCallback(data: string): boolean {
  * Used by both the regular inline menu flow and the search results flow.
  */
 async function applyModelSelectionAndNotify(ctx: Context, modelInfo: ModelInfo): Promise<void> {
+  const assistantMode = getAssistantMode();
+  const isCompatible =
+    (assistantMode === "agy" && modelInfo.providerID === "antigravity") ||
+    (assistantMode === "cursor" && modelInfo.providerID === "cursor") ||
+    (assistantMode === "opencode" &&
+      modelInfo.providerID !== "cursor" &&
+      modelInfo.providerID !== "antigravity");
+  if (!isCompatible) {
+    await ctx.answerCallbackQuery({ text: t("model.change_error_callback") }).catch(() => {});
+    return;
+  }
+
   if (ctx.chat) {
     keyboardManager.initialize(ctx.api, ctx.chat.id);
   }
 
   selectModel(modelInfo);
   keyboardManager.updateModel(modelInfo);
-  await pinnedMessageManager.refreshContextLimit();
+  if (assistantMode === "opencode") {
+    await pinnedMessageManager.refreshContextLimit();
+  }
 
-  const currentAgent = await resolveProjectAgent(getStoredAgent());
+  const currentAgent =
+    assistantMode === "opencode" ? await resolveProjectAgent(getStoredAgent()) : getStoredAgent();
   const contextInfo =
     pinnedMessageManager.getContextInfo() ??
     (pinnedMessageManager.getContextLimit() > 0
@@ -246,6 +265,18 @@ export async function handleModelSelect(ctx: Context): Promise<boolean> {
   logger.debug(`[ModelHandler] Received callback: ${callbackQuery.data}`);
 
   try {
+    if (
+      callbackQuery.data === MODEL_CATALOG_CALLBACK ||
+      callbackQuery.data.startsWith(`${MODEL_CATALOG_CALLBACK}:`)
+    ) {
+      const selected = await handleModelCatalogCallback(ctx);
+      if (selected) {
+        clearActiveInlineMenu("model_selected");
+        await applyModelSelectionAndNotify(ctx, selected);
+      }
+      return true;
+    }
+
     const modelInfo = resolveModelListCallback(callbackQuery.data);
     const shouldUseLegacyFallback = !isShortModelCallback(callbackQuery.data);
     const resolvedModelInfo =
@@ -327,7 +358,12 @@ export async function handleModelSearchTextInput(ctx: Context): Promise<boolean>
   logger.debug(`[ModelHandler] Model search query: "${text}"`);
 
   try {
-    const results = await searchModels(text);
+    const results =
+      getAssistantMode() === "cursor"
+        ? await searchCursorModels(text)
+        : getAssistantMode() === "agy"
+          ? await searchAgyModels(text)
+          : await searchModels(text);
 
     const keyboard = new InlineKeyboard();
 

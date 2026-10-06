@@ -1,8 +1,16 @@
 import type { Context } from "grammy";
 import type { FilePartInput, Model } from "@opencode-ai/sdk/v2";
 import { downloadTelegramFile, toDataUri } from "../../app/services/file-download-service.js";
-import { getModelCapabilities, supportsInput } from "../../app/services/model-capabilities-service.js";
+import {
+  getModelCapabilities,
+  supportsInput,
+} from "../../app/services/model-capabilities-service.js";
 import { getStoredModel } from "../../app/services/model-selection-service.js";
+import { getAssistantMode, type AssistantMode } from "../../app/stores/settings-store.js";
+import {
+  PENDING_ATTACHMENT_TTL_MINUTES,
+  storePendingAttachments,
+} from "../../app/services/pending-attachment-service.js";
 import { t } from "../../i18n/index.js";
 import { logger } from "../../utils/logger.js";
 import { flushPendingPrompt } from "./message-merger.js";
@@ -18,6 +26,7 @@ export interface PhotoHandlerDeps extends ProcessPromptDeps {
     modelId: string,
   ) => Promise<Model["capabilities"] | null>;
   getStoredModel?: () => { providerID: string; modelID: string };
+  getAssistantMode?: () => AssistantMode;
   processPrompt?: (
     ctx: Context,
     text: string,
@@ -39,13 +48,18 @@ export async function handlePhotoMessage(ctx: Context, deps: PhotoHandlerDeps): 
   const downloadFile = deps.downloadFile ?? downloadTelegramFile;
   const getCapabilities = deps.getModelCapabilities ?? getModelCapabilities;
   const getStored = deps.getStoredModel ?? getStoredModel;
+  const getMode = deps.getAssistantMode ?? getAssistantMode;
   const processPrompt = deps.processPrompt ?? processUserPrompt;
 
   try {
     const storedModel = getStored();
-    const capabilities = await getCapabilities(storedModel.providerID, storedModel.modelID);
+    const assistantMode = getMode();
+    const capabilities =
+      assistantMode !== "opencode"
+        ? null
+        : await getCapabilities(storedModel.providerID, storedModel.modelID);
 
-    if (!supportsInput(capabilities, "image")) {
+    if (assistantMode === "opencode" && !supportsInput(capabilities, "image")) {
       logger.warn(
         `[Bot] Model ${storedModel.providerID}/${storedModel.modelID} doesn't support image input`,
       );
@@ -67,6 +81,14 @@ export async function handlePhotoMessage(ctx: Context, deps: PhotoHandlerDeps): 
     };
 
     logger.info(`[Bot] Sending photo (${downloadedFile.buffer.length} bytes) with prompt`);
+    if (!caption.trim()) {
+      storePendingAttachments(ctx.chat!.id, [filePart]);
+      await ctx.reply(
+        t("bot.photo_waiting_for_prompt", { minutes: PENDING_ATTACHMENT_TTL_MINUTES }),
+      );
+      return;
+    }
+
     await processPrompt(ctx, caption, deps, [filePart]);
   } catch (err) {
     logger.error("[Bot] Error handling photo message:", err);

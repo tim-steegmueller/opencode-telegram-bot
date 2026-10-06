@@ -1,10 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { t } from "../../../src/i18n/index.js";
 import type { Bot, Context } from "grammy";
 import {
   consumePromptResponseMode,
   processUserPrompt,
   type ProcessPromptDeps,
 } from "../../../src/bot/handlers/prompt.js";
+import {
+  __resetPendingAttachmentsForTests,
+  getPendingAttachments,
+  storePendingAttachments,
+} from "../../../src/app/services/pending-attachment-service.js";
+import {
+  markAppRunning,
+  markAppShuttingDown,
+} from "../../../src/app/services/app-lifecycle-service.js";
 
 const mocked = vi.hoisted(() => ({
   currentProject: { id: "project-1", worktree: "D:\\Projects\\Repo" },
@@ -23,6 +33,18 @@ const mocked = vi.hoisted(() => ({
   setBotAndChatIdMock: vi.fn(),
   attachToSessionMock: vi.fn(),
   getTtsModeMock: vi.fn(),
+  getAssistantModeMock: vi.fn(),
+  storedModel: {
+    providerID: "openai",
+    modelID: "gpt-5",
+    variant: "default",
+  },
+  resolveAgyModelNameMock: vi.fn(() => "Gemini 3.5 Flash (High)"),
+  runAgyAgentPromptMock: vi.fn(),
+  isAgyAgentRunActiveMock: vi.fn(),
+  resolveSelectedAgyAccountMock: vi.fn(),
+  runCursorAgentPromptMock: vi.fn(),
+  isCursorAgentRunActiveMock: vi.fn(),
 }));
 
 vi.mock("../../../src/opencode/client.js", () => ({
@@ -50,6 +72,7 @@ vi.mock("../../../src/app/services/session-cache-service.js", () => ({
 vi.mock("../../../src/app/stores/settings-store.js", () => ({
   getCurrentProject: vi.fn(() => mocked.currentProject),
   getTtsMode: mocked.getTtsModeMock,
+  getAssistantMode: mocked.getAssistantModeMock,
 }));
 
 vi.mock("../../../src/app/services/agent-selection-service.js", () => ({
@@ -58,11 +81,22 @@ vi.mock("../../../src/app/services/agent-selection-service.js", () => ({
 }));
 
 vi.mock("../../../src/app/services/model-selection-service.js", () => ({
-  getStoredModel: vi.fn(() => ({
-    providerID: "openai",
-    modelID: "gpt-5",
-    variant: "default",
-  })),
+  getStoredModel: vi.fn(() => mocked.storedModel),
+}));
+
+vi.mock("../../../src/app/services/agy-agent-service.js", () => ({
+  isAgyAgentRunActive: mocked.isAgyAgentRunActiveMock,
+  resolveAgyModelName: mocked.resolveAgyModelNameMock,
+  runAgyAgentPrompt: mocked.runAgyAgentPromptMock,
+}));
+
+vi.mock("../../../src/app/services/agy-account-service.js", () => ({
+  resolveSelectedAgyAccount: mocked.resolveSelectedAgyAccountMock,
+}));
+
+vi.mock("../../../src/app/services/cursor-agent-service.js", () => ({
+  isCursorAgentRunActive: mocked.isCursorAgentRunActiveMock,
+  runCursorAgentPrompt: mocked.runCursorAgentPromptMock,
 }));
 
 vi.mock("../../../src/bot/pinned/pinned-message-manager.js", () => ({
@@ -148,7 +182,13 @@ function createContext(): Context {
 
 function createDeps(): ProcessPromptDeps {
   return {
-    bot: { api: { sendMessage: vi.fn().mockResolvedValue(undefined) } } as unknown as Bot<Context>,
+    bot: {
+      api: {
+        editMessageText: vi.fn().mockResolvedValue(undefined),
+        sendMessage: vi.fn().mockResolvedValue(undefined),
+        sendChatAction: vi.fn().mockResolvedValue(undefined),
+      },
+    } as unknown as Bot<Context>,
     ensureEventSubscription: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -173,6 +213,8 @@ function getScheduledBackgroundTask(): {
 
 describe("bot/handlers/prompt", () => {
   beforeEach(() => {
+    markAppRunning();
+    __resetPendingAttachmentsForTests();
     mocked.currentProject = { id: "project-1", worktree: "D:\\Projects\\Repo" };
     mocked.currentSession = {
       id: "session-1",
@@ -189,7 +231,34 @@ describe("bot/handlers/prompt", () => {
     mocked.setBotAndChatIdMock.mockReset();
     mocked.attachToSessionMock.mockReset();
     mocked.getTtsModeMock.mockReset();
+    mocked.getAssistantModeMock.mockReset();
+    mocked.storedModel = {
+      providerID: "openai",
+      modelID: "gpt-5",
+      variant: "default",
+    };
+    mocked.runAgyAgentPromptMock.mockReset();
+    mocked.isAgyAgentRunActiveMock.mockReset();
+    mocked.resolveSelectedAgyAccountMock.mockReset();
+    mocked.runCursorAgentPromptMock.mockReset();
+    mocked.isCursorAgentRunActiveMock.mockReset();
     mocked.getTtsModeMock.mockReturnValue("off");
+    mocked.getAssistantModeMock.mockReturnValue("opencode");
+    mocked.isAgyAgentRunActiveMock.mockReturnValue(false);
+    mocked.isCursorAgentRunActiveMock.mockReturnValue(false);
+    mocked.resolveSelectedAgyAccountMock.mockResolvedValue({
+      alias: "default",
+      homeDirectory: "/home/tim",
+      isDefault: true,
+    });
+    mocked.runAgyAgentPromptMock.mockResolvedValue({
+      output: "AGY done",
+      modelName: "Gemini 3.5 Flash (High)",
+    });
+    mocked.runCursorAgentPromptMock.mockResolvedValue({
+      output: "Cursor done",
+      modelName: "gpt-5.6-sol-high",
+    });
     mocked.attachToSessionMock.mockResolvedValue({
       busy: false,
       alreadyAttached: false,
@@ -205,6 +274,109 @@ describe("bot/handlers/prompt", () => {
     });
     mocked.sessionPromptMock.mockResolvedValue({ data: {}, error: null });
     mocked.sessionPromptAsyncMock.mockResolvedValue({ data: {}, error: null });
+  });
+
+  it("reports unavailable AGY models without starting work or exposing command details", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.resolveAgyModelNameMock.mockRejectedValueOnce(new Error("synthetic-private-cli-error"));
+    const ctx = {
+      chat: { id: 123 },
+      reply: vi.fn().mockResolvedValue({ message_id: 1 }),
+    } as unknown as Context;
+    const bot = { api: { sendMessage: vi.fn() } } as unknown as Bot<Context>;
+    const handled = await processUserPrompt(ctx, "hello", {
+      bot,
+      ensureEventSubscription: vi.fn(),
+    });
+    expect(handled).toBe(false);
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("model"));
+    expect(JSON.stringify(vi.mocked(ctx.reply).mock.calls)).not.toContain(
+      "synthetic-private-cli-error",
+    );
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the selected isolated account when validating the requested AGY model", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.resolveSelectedAgyAccountMock.mockResolvedValueOnce({
+      homeDirectory: "/tmp/captured-account",
+    });
+    mocked.resolveAgyModelNameMock.mockRejectedValueOnce(new Error("unavailable model"));
+    const handled = await processUserPrompt(createContext(), "hello", createDeps());
+    expect(handled).toBe(false);
+    expect(mocked.resolveAgyModelNameMock).toHaveBeenLastCalledWith(
+      mocked.storedModel,
+      "/tmp/captured-account",
+    );
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["agy", "cursor"])(
+    "renders %s direct abort without failure, job ID or replay",
+    async (mode) => {
+      mocked.getAssistantModeMock.mockReturnValue(mode);
+      const { AgentRunAbortedError } =
+        await import("../../../src/app/services/agent-run-service.js");
+      const jobs = await import("../../../src/app/services/agy-job-service.js");
+      const markNotified = vi.spyOn(jobs, "markAgyJobNotified");
+      try {
+        const deps = createDeps();
+        await processUserPrompt(createContext(), "Stop this prompt", deps);
+        const background = mocked.safeBackgroundTaskMock.mock.calls[0][0];
+        await background.onError(new AgentRunAbortedError());
+        expect(deps.bot.api.editMessageText).toHaveBeenLastCalledWith(777, 100, t("stop.success"));
+        expect(deps.bot.api.sendMessage).not.toHaveBeenCalled();
+        expect(markNotified).not.toHaveBeenCalled();
+        expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+        expect(mocked.runCursorAgentPromptMock).not.toHaveBeenCalled();
+      } finally {
+        markNotified.mockRestore();
+      }
+    },
+  );
+
+  it("keeps Cursor failure stderr and stacks out of Telegram", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("cursor");
+    const deps = createDeps();
+    await processUserPrompt(createContext(), "hello", deps);
+    const background = mocked.safeBackgroundTaskMock.mock.calls[0][0];
+    await background.onError(new Error("synthetic-private-stderr"));
+    expect(deps.bot.api.sendMessage).toHaveBeenCalledWith(777, "🔴 Cursor agent failed.");
+    expect(JSON.stringify(vi.mocked(deps.bot.api.sendMessage).mock.calls)).not.toContain(
+      "synthetic-private-stderr",
+    );
+  });
+
+  it("reports AGY quota failure without stderr exposure or replay", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    const deps = createDeps();
+    await processUserPrompt(createContext(), "hello", deps);
+    const background = mocked.safeBackgroundTaskMock.mock.calls[0][0];
+    await background.onError(
+      new Error(
+        'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429,"short_error":"Resets in 12h30m. synthetic-private-stderr"}',
+      ),
+    );
+    expect(deps.bot.api.sendMessage).toHaveBeenCalledWith(777, expect.stringContaining("HTTP 429"));
+    expect(JSON.stringify(vi.mocked(deps.bot.api.sendMessage).mock.calls)).not.toContain(
+      "synthetic-private-stderr",
+    );
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("does not dispatch a prompt after gateway shutdown has started", async () => {
+    markAppShuttingDown();
+    const ctx = createContext();
+
+    const handled = await processUserPrompt(ctx, "Do not lose this request", createDeps());
+
+    expect(handled).toBe(false);
+    expect(mocked.safeBackgroundTaskMock).not.toHaveBeenCalled();
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+    expect(mocked.sessionPromptAsyncMock).not.toHaveBeenCalled();
+    expect(ctx.reply).toHaveBeenCalledWith(
+      "The bot is restarting. This request was not started; please send it again shortly.",
+    );
   });
 
   it("registers suppression entry for text prompts", async () => {
@@ -244,6 +416,207 @@ describe("bot/handlers/prompt", () => {
       variant: "default",
     });
     expect(mocked.sessionPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("dispatches prompts through AGY agent mode without creating an OpenCode session", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.storedModel = {
+      providerID: "antigravity",
+      modelID: "gemini-3.5-flash-high",
+      variant: "default",
+    };
+    const ctx = createContext();
+    const deps = createDeps();
+
+    const handled = await processUserPrompt(ctx, "Create a file", deps);
+
+    expect(handled).toBe(true);
+    expect(ctx.reply).toHaveBeenCalledWith("🚀 AGY agent started with Gemini 3.5 Flash (High)...");
+    expect(mocked.sessionStatusMock).not.toHaveBeenCalled();
+    expect(mocked.sessionCreateMock).not.toHaveBeenCalled();
+    expect(mocked.attachToSessionMock).not.toHaveBeenCalled();
+
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+
+    expect(mocked.runAgyAgentPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "Create a file",
+        projectDirectory: "D:\\Projects\\Repo",
+        model: {
+          providerID: "antigravity",
+          modelID: "gemini-3.5-flash-high",
+          variant: "default",
+        },
+        accountHome: "/home/tim",
+        onProgress: expect.any(Function),
+      }),
+    );
+  });
+
+  it("passes image attachments to AGY agent mode", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.storedModel = {
+      providerID: "antigravity",
+      modelID: "gemini-3.5-flash-high",
+      variant: "default",
+    };
+    const attachment = {
+      type: "file",
+      mime: "image/png",
+      filename: "screen.png",
+      url: "data:image/png;base64,aW1hZ2U=",
+    } as const;
+
+    const handled = await processUserPrompt(createContext(), "Review this UI", createDeps(), [
+      attachment,
+    ]);
+
+    expect(handled).toBe(true);
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+    expect(mocked.runAgyAgentPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [attachment] }),
+    );
+  });
+
+  it("dispatches prompts and image attachments through Cursor mode", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("cursor");
+    mocked.storedModel = {
+      providerID: "cursor",
+      modelID: "gpt-5.6-sol-high",
+      variant: "default",
+    };
+    const attachment = {
+      type: "file",
+      mime: "image/png",
+      filename: "screen.png",
+      url: "data:image/png;base64,aW1hZ2U=",
+    } as const;
+
+    const deps = createDeps();
+    const handled = await processUserPrompt(createContext(), "Fix this UI", deps, [attachment]);
+
+    expect(handled).toBe(true);
+    expect(deps.bot.api.sendChatAction).toHaveBeenCalledWith(777, "typing");
+    expect(mocked.sessionCreateMock).not.toHaveBeenCalled();
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+    expect(mocked.runCursorAgentPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "Fix this UI",
+        projectDirectory: "D:\\Projects\\Repo",
+        model: mocked.storedModel,
+        attachments: [attachment],
+        onProgress: expect.any(Function),
+      }),
+    );
+  });
+
+  it("uses and clears a pending photo with the next AGY prompt", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.storedModel = {
+      providerID: "antigravity",
+      modelID: "gemini-3.5-flash-high",
+      variant: "default",
+    };
+    const attachment = {
+      type: "file",
+      mime: "image/png",
+      filename: "screen.png",
+      url: "data:image/png;base64,aW1hZ2U=",
+    } as const;
+    storePendingAttachments(777, [attachment]);
+
+    const handled = await processUserPrompt(createContext(), "Fix this layout", createDeps());
+
+    expect(handled).toBe(true);
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+    expect(mocked.runAgyAgentPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [attachment] }),
+    );
+    expect(getPendingAttachments(777)).toEqual([]);
+  });
+
+  it("rejects an unavailable AGY account without falling back", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.resolveSelectedAgyAccountMock.mockRejectedValue(new Error("profile missing"));
+    const ctx = createContext();
+
+    const handled = await processUserPrompt(ctx, "Review repo", createDeps());
+
+    expect(handled).toBe(false);
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+    expect(ctx.reply).toHaveBeenCalledWith(
+      "This account profile is unavailable. Open /account again.",
+    );
+  });
+
+  it("uses AGY mode with its default model when the selected model came from OpenCode", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.storedModel = {
+      providerID: "deepseek",
+      modelID: "deepseek-v4-pro",
+      variant: "max",
+    };
+    const ctx = createContext();
+    const deps = createDeps();
+
+    const handled = await processUserPrompt(ctx, "Create GitHub issues", deps);
+
+    expect(handled).toBe(true);
+    expect(mocked.attachToSessionMock).not.toHaveBeenCalled();
+
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+
+    expect(mocked.runAgyAgentPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "Create GitHub issues",
+        model: {
+          providerID: "deepseek",
+          modelID: "deepseek-v4-pro",
+          variant: "max",
+        },
+      }),
+    );
+    expect(mocked.sessionPromptAsyncMock).not.toHaveBeenCalled();
+  });
+
+  it("streams AGY activity updates into the Telegram progress message", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.storedModel = {
+      providerID: "antigravity",
+      modelID: "gemini-3.5-flash-high",
+      variant: "default",
+    };
+    mocked.runAgyAgentPromptMock.mockImplementation(async (options) => {
+      options.onProgress?.("Run quality check: pnpm quality");
+      return {
+        output: "AGY done",
+        modelName: "Gemini 3.5 Flash (High)",
+      };
+    });
+    const ctx = createContext();
+    const deps = createDeps();
+
+    const handled = await processUserPrompt(ctx, "Review repo", deps);
+
+    expect(handled).toBe(true);
+
+    const backgroundTask = getScheduledBackgroundTask();
+    await backgroundTask.task();
+    backgroundTask.onSuccess?.({
+      output: "AGY done",
+      modelName: "Gemini 3.5 Flash (High)",
+    } as never);
+
+    expect(deps.bot.api.editMessageText).toHaveBeenLastCalledWith(
+      777,
+      100,
+      expect.stringContaining("Run quality check: pnpm quality"),
+    );
   });
 
   it("still notifies the user when promptAsync reports a real start error", async () => {

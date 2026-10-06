@@ -187,6 +187,8 @@ describe("bot/services/event-subscription-service", () => {
     const settingsStore = await import("../../../src/app/stores/settings-store.js");
     settingsStore.__resetSettingsForTests();
     await resetSingletonState();
+    // Load the subscription graph in fixture setup, not in the timed delivery assertion.
+    await import("../../../src/bot/services/event-subscription-service.js");
   });
 
   afterEach(async () => {
@@ -194,6 +196,7 @@ describe("bot/services/event-subscription-service", () => {
     activeService = null;
 
     const settingsStore = await import("../../../src/app/stores/settings-store.js");
+    await settingsStore.__flushSettingsWritesForTests();
     settingsStore.__resetSettingsForTests();
     vi.unstubAllEnvs();
     await rm(tempHome, { recursive: true, force: true });

@@ -21,7 +21,11 @@ export async function startCommand(ctx: Context): Promise<void> {
     keyboardManager.initialize(ctx.api, ctx.chat.id);
   }
 
-  await abortCurrentOperation(ctx, { notifyUser: false });
+  const stopped = await abortCurrentOperation(ctx, { notifyUser: false });
+  if (!stopped) {
+    await ctx.reply(t("stop.warn_unconfirmed"));
+    return;
+  }
   detachAttachedSession("start_command_reset");
   foregroundSessionState.clearAll("start_command_reset");
   assistantRunState.clearAll("start_command_reset");

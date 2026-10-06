@@ -22,6 +22,11 @@ const mocked = vi.hoisted(() => ({
   clearRunMock: vi.fn(),
   markAttachedSessionIdleMock: vi.fn(),
   clearPromptResponseModeMock: vi.fn(),
+  assistantMode: "opencode" as "opencode" | "agy" | "cursor",
+  isAgyAgentRunActiveMock: vi.fn(),
+  isCursorAgentRunActiveMock: vi.fn(),
+  abortActiveAgyJobMock: vi.fn(),
+  abortActiveAgentRunMock: vi.fn(),
 }));
 
 vi.mock("../../../src/app/services/session-service.js", () => ({
@@ -49,6 +54,26 @@ vi.mock("../../../src/app/services/attach-service.js", () => ({
 
 vi.mock("../../../src/bot/handlers/prompt.js", () => ({
   clearPromptResponseMode: mocked.clearPromptResponseModeMock,
+}));
+
+vi.mock("../../../src/app/stores/settings-store.js", () => ({
+  getAssistantMode: vi.fn(() => mocked.assistantMode),
+}));
+
+vi.mock("../../../src/app/services/agy-agent-service.js", () => ({
+  isAgyAgentRunActive: mocked.isAgyAgentRunActiveMock,
+}));
+
+vi.mock("../../../src/app/services/cursor-agent-service.js", () => ({
+  isCursorAgentRunActive: mocked.isCursorAgentRunActiveMock,
+}));
+
+vi.mock("../../../src/app/services/agent-run-service.js", () => ({
+  abortActiveAgentRun: mocked.abortActiveAgentRunMock,
+}));
+
+vi.mock("../../../src/app/services/agy-job-service.js", () => ({
+  abortActiveAgyJob: mocked.abortActiveAgyJobMock,
 }));
 
 const TEST_QUESTION: Question = {
@@ -91,7 +116,101 @@ describe("bot/commands/abort", () => {
     mocked.markAttachedSessionIdleMock.mockReset();
     mocked.markAttachedSessionIdleMock.mockResolvedValue(undefined);
     mocked.clearPromptResponseModeMock.mockReset();
+    mocked.assistantMode = "opencode";
+    mocked.isAgyAgentRunActiveMock.mockReset();
+    mocked.isAgyAgentRunActiveMock.mockReturnValue(false);
+    mocked.isCursorAgentRunActiveMock.mockReset();
+    mocked.isCursorAgentRunActiveMock.mockReturnValue(false);
+    mocked.abortActiveAgentRunMock.mockReset();
+    mocked.abortActiveAgentRunMock.mockReturnValue(null);
+    mocked.abortActiveAgyJobMock.mockReset();
+    mocked.abortActiveAgyJobMock.mockResolvedValue(true);
     __resetUserAbortErrorSuppressionForTests();
+  });
+
+  it.each([true, false])("reports only the confirmed direct stop (%s)", async (stopped) => {
+    mocked.isAgyAgentRunActiveMock.mockReturnValue(true);
+    mocked.abortActiveAgentRunMock.mockResolvedValue(stopped);
+    const ctx = {
+      chat: { id: 777 },
+      reply: vi.fn().mockResolvedValue({ message_id: 88 }),
+      api: { editMessageText: vi.fn().mockResolvedValue(undefined) },
+    } as unknown as Context;
+    await expect(abortCurrentOperation(ctx)).resolves.toBe(stopped);
+    expect(mocked.abortActiveAgyJobMock).not.toHaveBeenCalled();
+    expect(mocked.abortMock).not.toHaveBeenCalled();
+    expect(ctx.api.editMessageText).toHaveBeenCalledWith(
+      777,
+      88,
+      stopped ? t("stop.success") : t("stop.warn_unconfirmed"),
+    );
+  });
+
+  it("binds the current job before waiting for a Telegram reply", async () => {
+    mocked.isAgyAgentRunActiveMock.mockReturnValue(true);
+    let resolveStop!: (value: boolean) => void;
+    mocked.abortActiveAgentRunMock.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveStop = resolve;
+      }),
+    );
+    const ctx = {
+      chat: { id: 777 },
+      reply: vi.fn().mockImplementation(() => {
+        expect(mocked.abortActiveAgentRunMock).toHaveBeenCalledTimes(1);
+        mocked.abortActiveAgentRunMock.mockResolvedValue(false); // A later run must not be targeted.
+        resolveStop(true);
+        return Promise.resolve({ message_id: 88 });
+      }),
+      api: { editMessageText: vi.fn().mockResolvedValue(undefined) },
+    } as unknown as Context;
+    await expect(abortCurrentOperation(ctx)).resolves.toBe(true);
+    expect(mocked.abortActiveAgentRunMock).toHaveBeenCalledTimes(1);
+    expect(mocked.abortActiveAgyJobMock).not.toHaveBeenCalled();
+    expect(ctx.api.editMessageText).toHaveBeenCalledWith(777, 88, t("stop.success"));
+  });
+
+  it("returns an unconfirmed silent stop so /start cannot reset context", async () => {
+    mocked.isCursorAgentRunActiveMock.mockReturnValue(true);
+    mocked.abortActiveAgentRunMock.mockResolvedValue(false);
+    const ctx = { reply: vi.fn() } as unknown as Context;
+    await expect(abortCurrentOperation(ctx, { notifyUser: false })).resolves.toBe(false);
+    expect(ctx.reply).not.toHaveBeenCalled();
+    expect(mocked.abortActiveAgyJobMock).not.toHaveBeenCalled();
+  });
+
+  it("stops the active durable AGY worker instead of an OpenCode session", async () => {
+    mocked.assistantMode = "agy";
+    mocked.isAgyAgentRunActiveMock.mockReturnValue(true);
+    const replyMock = vi.fn().mockResolvedValue({ message_id: 88 });
+    const editMessageTextMock = vi.fn().mockResolvedValue(undefined);
+    const ctx = {
+      chat: { id: 777 },
+      reply: replyMock,
+      api: { editMessageText: editMessageTextMock },
+    } as unknown as Context;
+
+    await abortCommand(ctx as never);
+
+    expect(mocked.abortActiveAgyJobMock).toHaveBeenCalledTimes(1);
+    expect(mocked.abortMock).not.toHaveBeenCalled();
+    expect(replyMock).toHaveBeenCalledWith(t("stop.in_progress"));
+    expect(editMessageTextMock).toHaveBeenCalledWith(777, 88, t("stop.success"));
+  });
+
+  it("stops the active durable Cursor worker instead of an OpenCode session", async () => {
+    mocked.assistantMode = "cursor";
+    mocked.isCursorAgentRunActiveMock.mockReturnValue(true);
+    const ctx = {
+      chat: { id: 777 },
+      reply: vi.fn().mockResolvedValue({ message_id: 88 }),
+      api: { editMessageText: vi.fn().mockResolvedValue(undefined) },
+    } as unknown as Context;
+
+    await abortCommand(ctx as never);
+
+    expect(mocked.abortActiveAgyJobMock).toHaveBeenCalledTimes(1);
+    expect(mocked.abortMock).not.toHaveBeenCalled();
   });
 
   function markSessionBusy(): void {
@@ -122,6 +241,27 @@ describe("bot/commands/abort", () => {
     expect(interactionManager.getSnapshot()).toBeNull();
     expect(mocked.abortMock).not.toHaveBeenCalled();
   });
+
+  it.each(["agy", "cursor"] as const)(
+    "aborts the active %s job after selecting another engine",
+    async (backend) => {
+      mocked.assistantMode = "opencode";
+      (backend === "agy"
+        ? mocked.isAgyAgentRunActiveMock
+        : mocked.isCursorAgentRunActiveMock
+      ).mockReturnValue(true);
+      mocked.abortActiveAgyJobMock.mockResolvedValue(true);
+      const ctx = {
+        chat: { id: 42 },
+        reply: vi.fn().mockResolvedValue({ message_id: 88 }),
+        api: { editMessageText: vi.fn().mockResolvedValue(undefined) },
+      } as unknown as Context;
+      await abortCurrentOperation(ctx);
+      expect(mocked.abortActiveAgyJobMock).toHaveBeenCalledOnce();
+      expect(mocked.abortMock).not.toHaveBeenCalled();
+      expect(ctx.api.editMessageText).toHaveBeenCalledWith(42, 88, t("stop.success"));
+    },
+  );
 
   it("clears interaction state and aborts active session", async () => {
     activateInteractionState();

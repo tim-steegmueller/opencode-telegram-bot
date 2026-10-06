@@ -7,6 +7,8 @@ export const es: I18nDictionary = {
   "cmd.description.detach": "Desconectar de la sesión actual",
   "cmd.description.sessions": "Listar sesiones",
   "cmd.description.messages": "Ver mensajes de la sesión",
+  "cmd.description.mode": "Elegir modo de asistente",
+  "cmd.description.account": "Elegir cuenta de Google para AGY",
   "cmd.description.settings": "Cambiar ajustes del bot",
   "cmd.description.projects": "Listar proyectos",
   "cmd.description.worktree": "Cambiar worktrees de git",
@@ -22,6 +24,12 @@ export const es: I18nDictionary = {
 
   "callback.unknown_command": "Comando desconocido",
   "callback.processing_error": "Error de procesamiento",
+  "account.prompt": "Elige la cuenta de Google para nuevos trabajos de AGY:",
+  "account.selected": "Cuenta de AGY seleccionada: {account}",
+  "account.unavailable": "Este perfil no está disponible. Abre /account de nuevo.",
+  "account.login_needed": "Inicio de sesión necesario",
+  "account.sign_in_required":
+    "Inicia sesión en AGY con el perfil aislado de esta cuenta de Chrome. La cuenta actual sigue seleccionada.",
 
   "error.load_agents": "❌ No se pudo cargar la lista de agentes",
   "error.load_models": "❌ No se pudo cargar la lista de modelos",
@@ -87,6 +95,8 @@ export const es: I18nDictionary = {
   "bot.session_reset_project_mismatch":
     "⚠️ La sesión activa no coincide con el proyecto seleccionado, así que se reinició. Usa /sessions para elegir una o /new para crear una nueva.",
   "bot.prompt_send_error": "No se pudo enviar la solicitud a OpenCode.",
+  "bot.shutting_down":
+    "El bot se está reiniciando. Esta solicitud no se inició; envíala de nuevo en unos instantes.",
   "bot.session_error": "🔴 OpenCode devolvió un error: {message}",
   "bot.session_retry":
     "🔁 {message}\n\nEl proveedor devuelve el mismo error en intentos repetidos. Usa /abort para detenerlo.",
@@ -106,6 +116,8 @@ export const es: I18nDictionary = {
   "bot.photo_download_error": "🔴 No se pudo descargar la foto",
   "bot.photo_no_caption":
     "💡 Consejo: agrega un pie de foto para describir que quieres hacer con esta foto.",
+  "bot.photo_waiting_for_prompt":
+    "📎 Foto guardada. Envía texto o un mensaje de voz en {minutes} minutos para usarla.",
   "bot.file_downloading": "⏳ Descargando archivo...",
   "bot.files_downloading": "⏳ Descargando archivos...",
   "bot.file_too_large": "⚠️ El archivo es demasiado grande (max {maxSizeMb}MB)",
@@ -131,6 +143,8 @@ export const es: I18nDictionary = {
   "status.line.uptime_sec": "Tiempo activo: {seconds} s",
   "status.line.mode": "Agente: {mode}",
   "status.line.model": "Modelo: {model}",
+  "status.model_unverified": "{model} (disponibilidad no verificada)",
+  "status.line.account": "Cuenta: {account}",
   "status.line.tts": "Respuestas de audio: {tts}",
   "status.tts.off": "Desactivadas",
   "status.tts.all": "Todo",
@@ -152,6 +166,41 @@ export const es: I18nDictionary = {
   "tts.not_configured":
     "⚠️ Las respuestas de audio no estan disponibles. Configura primero `TTS_API_URL` y `TTS_API_KEY`.",
   "tts.failed": "⚠️ No se pudo generar la respuesta de audio.",
+  "mode.prompt": "Choose assistant mode:",
+  "mode.option.opencode": "OpenCode agent",
+  "mode.option.agy": "AGY agent",
+  "mode.option.cursor": "Cursor agent",
+  "mode.selected.opencode": "OpenCode mode selected.",
+  "mode.selected.agy": "AGY agent mode selected.",
+  "mode.selected.cursor": "Cursor agent mode selected.",
+  "agy.started": "🚀 AGY agent started with {model}...",
+  "agy.running": "⏳ AGY is still running with {model} ({seconds}s)...",
+  "agy.finished_status": "✅ AGY agent finished.",
+  "agy.activity.command": "Comando de shell solicitado.",
+  "agy.activity.confirmation": "Herramienta confirmada.",
+  "agy.activity.error": "La herramienta falló. Los detalles están en el registro local de AGY.",
+  "agy.failure.quota": "El proveedor informa de una cuota agotada o un límite de solicitudes.",
+  "agy.failure.auth": "El proveedor denegó el acceso. Comprueba la cuenta seleccionada y sus permisos.",
+  "agy.failure.timeout": "AGY agotó el tiempo de espera de la respuesta.",
+  "agy.failure.unavailable": "El proveedor no está disponible temporalmente.",
+  "agy.failure.unknown": "La causa no está clasificada. Los detalles quedan en el registro local de AGY.",
+  "agy.failure.context": "Modelo: {model} | Duración: {seconds}s",
+  "agy.failure.reset": "Espera indicada por el proveedor al producirse el error: {duration}",
+  "agy.failure.reference": "Referencia del error: {id}",
+  "agy.failure.no_retry": "No se reintentó automáticamente ni se cambió de cuenta o modelo.",
+  "agy.failed_status": "🔴 AGY agent failed.",
+  "agy.busy": "⏳ AGY agent is already running. Wait for completion before sending another task.",
+  "agy.attachments_unsupported":
+    "⚠️ AGY mode currently supports text prompts only. Switch to OpenCode mode for files or images.",
+  "agy.response": "AGY ({model}) finished:\n\n{output}",
+  "agy.error": "🔴 AGY agent failed:\n\n{error}",
+  "cursor.started": "🚀 Cursor agent started with {model}...",
+  "cursor.running": "⏳ Cursor is still running with {model} ({seconds}s)...",
+  "cursor.finished_status": "✅ Cursor agent finished.",
+  "cursor.failed_status": "🔴 Cursor agent failed.",
+  "cursor.busy":
+    "⏳ Cursor is still working. Follow the running status message for progress, or use /abort to stop it.",
+  "cursor.error": "🔴 Cursor agent failed:\n\n{error}",
 
   "settings.menu.title": "⚙️ Ajustes del bot\nToca un ajuste para cambiar su valor:",
   "settings.compact_output.label": "Salida compacta",
@@ -324,6 +373,12 @@ export const es: I18nDictionary = {
   "model.menu.favorites_hint":
     "ℹ️ Agrega modelos a favoritos en OpenCode CLI para mantenerlos arriba de la lista.",
   "model.menu.error": "🔴 No se pudo obtener la lista de modelos",
+  "model.catalog.button": "Todos los proveedores y modelos",
+  "model.catalog.previous": "Anterior",
+  "model.catalog.next": "Siguiente",
+  "model.catalog.providers_button": "Todos los proveedores",
+  "model.catalog.providers": "Proveedores: {total} · Modelos: {models} · Página {page}/{pages}",
+  "model.catalog.models": "{provider}: {total} modelos · Página {page}/{pages}",
   "model.search.button": "🔍 Buscar",
   "model.search.prompt": "🔍 Ingrese el nombre del modelo para buscar:",
   "model.search.results_title": 'Resultados de búsqueda para "{query}":',

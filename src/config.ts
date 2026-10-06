@@ -102,14 +102,10 @@ export function parseInitialSettingsPreset(): Record<string, unknown> {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(
-      "INITIAL_SETTINGS_PRESET contains invalid JSON. Fix or unset the variable.",
-    );
+    throw new Error("INITIAL_SETTINGS_PRESET contains invalid JSON. Fix or unset the variable.");
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(
-      "INITIAL_SETTINGS_PRESET must be a JSON object.",
-    );
+    throw new Error("INITIAL_SETTINGS_PRESET must be a JSON object.");
   }
   return parsed as Record<string, unknown>;
 }
@@ -193,6 +189,9 @@ export function buildTelegramConfig(): {
 export const config = {
   telegram: buildTelegramConfig(),
   opencode: {
+    serverVersion: (getEnvVar("OPENCODE_SERVER_VERSION", false).trim().toLowerCase() === "v2"
+      ? "v2"
+      : "v1") as "v1" | "v2",
     apiUrl: getEnvVar("OPENCODE_API_URL", false) || "http://localhost:4096",
     username: getEnvVar("OPENCODE_SERVER_USERNAME", false) || "opencode",
     password: getEnvVar("OPENCODE_SERVER_PASSWORD", false),
@@ -237,6 +236,7 @@ export const config = {
     browserRoots: getEnvVar("OPEN_BROWSER_ROOTS", false),
   },
   stt: {
+    command: getEnvVar("STT_COMMAND", false),
     apiUrl: getEnvVar("STT_API_URL", false),
     apiKey: getEnvVar("STT_API_KEY", false),
     model: getEnvVar("STT_MODEL", false) || "whisper-large-v3-turbo",
@@ -260,8 +260,7 @@ export const config = {
           : provider === "edge"
             ? "en-US-EmmaMultilingualNeural"
             : "alloy";
-    const defaultModel =
-      provider === "elevenlabs" ? "eleven_flash_v2_5" : "gpt-4o-mini-tts";
+    const defaultModel = provider === "elevenlabs" ? "eleven_flash_v2_5" : "gpt-4o-mini-tts";
     return {
       apiUrl: getEnvVar("TTS_API_URL", false),
       apiKey: getEnvVar("TTS_API_KEY", false),

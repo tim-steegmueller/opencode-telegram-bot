@@ -1,0 +1,460 @@
+import { EventEmitter } from "node:events";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocked = vi.hoisted(() => ({
+  spawnMock: vi.fn(),
+}));
+
+vi.mock("node:child_process", () => ({
+  spawn: mocked.spawnMock,
+}));
+
+function createChild(): EventEmitter & {
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+} {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  return child;
+}
+
+describe("app/services/agy-job-service", () => {
+  let jobsDirectory: string;
+
+  beforeEach(async () => {
+    mocked.spawnMock.mockReset();
+    jobsDirectory = await mkdtemp(path.join(os.tmpdir(), "agy-job-service-test-"));
+    process.env.AGY_JOBS_DIR = jobsDirectory;
+    process.env.AGY_WORKER_MODE = "systemd";
+    process.env.AGY_CLI_PATH = "/test/agy";
+    process.env.SYSTEMD_RUN_PATH = "/test/systemd-run";
+    process.env.SYSTEMCTL_PATH = "/test/systemctl";
+    process.env.TMUX_PATH = "/test/tmux";
+  });
+
+  afterEach(async () => {
+    delete process.env.AGY_JOBS_DIR;
+    delete process.env.AGY_WORKER_MODE;
+    delete process.env.AGY_CLI_PATH;
+    delete process.env.SYSTEMD_RUN_PATH;
+    delete process.env.SYSTEMCTL_PATH;
+    delete process.env.TMUX_PATH;
+    await rm(jobsDirectory, { recursive: true, force: true });
+  });
+
+  it.each(["agy", "cursor"])(
+    "prevents a pending %s worker from dispatching after abort",
+    async (backend) => {
+      const { beginAgentRun, abortActiveAgentRun, AgentRunAbortedError } =
+        await import("../../../src/app/services/agent-run-service.js");
+      const { runDurableAgyJob } = await import("../../../src/app/services/agy-job-service.js");
+      const run = beginAgentRun();
+      const result = runDurableAgyJob({
+        prompt: "Do not dispatch",
+        projectDirectory: "/tmp/project",
+        modelName: "Test model",
+        timeoutMs: 60_000,
+        backend: backend as "agy" | "cursor",
+        run,
+      }).finally(() => run.finish());
+      const rejected = expect(result).rejects.toBeInstanceOf(AgentRunAbortedError);
+      await expect(abortActiveAgentRun()).resolves.toBe(true);
+      await rejected;
+      expect(mocked.spawnMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("binds cancellation during worker launch to that exact worker", async () => {
+    const { beginAgentRun, abortActiveAgentRun } =
+      await import("../../../src/app/services/agent-run-service.js");
+    const { runDurableAgyJob, DurableAgyJobAbortedError } =
+      await import("../../../src/app/services/agy-job-service.js");
+    let launcher: ReturnType<typeof createChild> | undefined;
+    mocked.spawnMock.mockImplementation((file: string, args: string[]) => {
+      const child = createChild();
+      if (file === "/test/systemd-run") launcher = child;
+      else setTimeout(() => child.emit("close", 0, null), 0);
+      return child;
+    });
+    const run = beginAgentRun();
+    const result = runDurableAgyJob({
+      prompt: "Abort owned worker",
+      projectDirectory: "/tmp/project",
+      modelName: "Test model",
+      timeoutMs: 60_000,
+      run,
+    }).finally(() => run.finish());
+    const rejected = expect(result).rejects.toBeInstanceOf(DurableAgyJobAbortedError);
+    await vi.waitFor(() => expect(launcher).toBeDefined());
+    const stopped = abortActiveAgentRun();
+    launcher!.emit("close", 0, null);
+    await expect(stopped).resolves.toBe(true);
+    await rejected;
+    const calls = mocked.spawnMock.mock.calls;
+    const unit = (calls.find(([file]) => file === "/test/systemd-run")![1] as string[])
+      .find((arg) => arg.startsWith("--unit="))!
+      .slice("--unit=".length);
+    expect(
+      calls.some(
+        ([file, args]) => file === "/test/systemctl" && args.join(" ") === `--user stop ${unit}`,
+      ),
+    ).toBe(true);
+  });
+
+  it("stops only the captured worker if its launcher fails after dispatch during abort", async () => {
+    const { beginAgentRun, abortActiveAgentRun, isAgentRunActive } =
+      await import("../../../src/app/services/agent-run-service.js");
+    const { runDurableAgyJob, DurableAgyJobAbortedError } =
+      await import("../../../src/app/services/agy-job-service.js");
+    let launcher: ReturnType<typeof createChild> | undefined;
+    let stopChild: ReturnType<typeof createChild> | undefined;
+    mocked.spawnMock.mockImplementation((file: string, args: string[]) => {
+      const child = createChild();
+      if (file === "/test/systemd-run") launcher = child;
+      else if (args.includes("stop")) stopChild = child;
+      return child;
+    });
+    const run = beginAgentRun();
+    const result = runDurableAgyJob({
+      prompt: "Abort failed dispatch",
+      projectDirectory: "/tmp/project",
+      modelName: "Test model",
+      timeoutMs: 60_000,
+      run,
+    }).finally(() => run.finish());
+    const rejected = expect(result).rejects.toBeInstanceOf(DurableAgyJobAbortedError);
+    await vi.waitFor(() => expect(launcher).toBeDefined());
+    const stopped = abortActiveAgentRun();
+    launcher!.emit("close", 1, null);
+    await vi.waitFor(() => expect(stopChild).toBeDefined());
+    expect(isAgentRunActive()).toBe(true);
+    stopChild!.emit("close", 0, null);
+    await rejected;
+    await expect(stopped).resolves.toBe(true);
+    expect(isAgentRunActive()).toBe(false);
+    const calls = mocked.spawnMock.mock.calls;
+    const unit = (calls.find(([file]) => file === "/test/systemd-run")![1] as string[])
+      .find((arg) => arg.startsWith("--unit="))!
+      .slice("--unit=".length);
+    expect(
+      calls.filter(
+        ([file, args]) => file === "/test/systemctl" && args.join(" ") === `--user stop ${unit}`,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("launches a private systemd worker job and keeps prompt secrets out of metadata", async () => {
+    mocked.spawnMock.mockImplementation((file: string, args: string[]) => {
+      const child = createChild();
+      expect(file).toBe("/test/systemd-run");
+
+      setTimeout(async () => {
+        const requestPath = args.at(-1) as string;
+        const request = JSON.parse(await readFile(requestPath, "utf8")) as { jobId: string };
+        const recordPath = path.join(jobsDirectory, `${request.jobId}.json`);
+        const record = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown>;
+        await import("../../../src/app/services/agy-job-service.js").then(({ writeAgyJobRecord }) =>
+          writeAgyJobRecord({
+            ...record,
+            status: "completed",
+            completedAt: new Date().toISOString(),
+            output: "worker result",
+          }),
+        );
+        child.emit("close", 0, null);
+      }, 0);
+
+      return child;
+    });
+
+    const { runDurableAgyJob } = await import("../../../src/app/services/agy-job-service.js");
+    const result = await runDurableAgyJob({
+      prompt: "sensitive prompt",
+      projectDirectory: "/tmp/project",
+      modelName: "Claude Opus 4.6 (Thinking)",
+      accountHome: "/tmp/private-account",
+      timeoutMs: 60_000,
+    });
+
+    expect(result).toEqual({
+      jobId: expect.any(String),
+      output: "worker result",
+      modelName: "Claude Opus 4.6 (Thinking)",
+    });
+    expect(mocked.spawnMock).toHaveBeenCalledWith(
+      "/test/systemd-run",
+      expect.arrayContaining([
+        "--user",
+        "--collect",
+        "--property=KillMode=mixed",
+        "--property=TimeoutStopSec=30",
+      ]),
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    const recordPath = path.join(jobsDirectory, `${result.jobId}.json`);
+    const recordText = await readFile(recordPath, "utf8");
+    expect(recordText).not.toContain("sensitive prompt");
+    expect(recordText).not.toContain("private-account");
+    expect((await stat(recordPath)).mode & 0o777).toBe(0o600);
+    expect((await stat(jobsDirectory)).mode & 0o777).toBe(0o700);
+  });
+
+  it("delivers a completed unnotified job after gateway restart", async () => {
+    const { markAgyJobNotified, readAgyJobRecord, recoverAgyJobs, writeAgyJobRecord } =
+      await import("../../../src/app/services/agy-job-service.js");
+    await writeAgyJobRecord({
+      version: 1,
+      jobId: "12345678-1234-1234-1234-123456789abc",
+      unitName: "tg-agy-test",
+      status: "completed",
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      modelName: "Test model",
+      projectDirectory: "/tmp/project",
+      notification: { chatId: 777, progressMessageId: 99 },
+      activityLines: [],
+      output: "recovered result",
+    });
+    const bot = {
+      api: {
+        editMessageText: vi.fn().mockResolvedValue(undefined),
+        sendMessage: vi.fn().mockResolvedValue(undefined),
+      },
+    } as never;
+
+    await recoverAgyJobs(bot);
+
+    expect(bot.api.editMessageText).toHaveBeenCalledWith(777, 99, "✅ AGY agent finished.");
+    expect(bot.api.sendMessage).toHaveBeenCalledWith(
+      777,
+      "AGY (Test model) finished:\n\nrecovered result",
+    );
+    expect((await readAgyJobRecord("12345678-1234-1234-1234-123456789abc")).notifiedAt).toEqual(
+      expect.any(String),
+    );
+
+    await markAgyJobNotified("12345678-1234-1234-1234-123456789abc");
+  });
+
+  it("recovers failed Cursor jobs with the correct backend and no private stderr", async () => {
+    const { recoverAgyJobs, writeAgyJobRecord } =
+      await import("../../../src/app/services/agy-job-service.js");
+    await writeAgyJobRecord({
+      jobId: "12345678-1234-1234-1234-123456789abc",
+      unitName: "test-unit",
+      workerMode: "systemd",
+      status: "failed",
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      modelName: "Test model",
+      backend: "cursor",
+      activityLines: [],
+      error: "synthetic-private-stderr",
+      notification: { chatId: 777, progressMessageId: 99 },
+    });
+    const bot = {
+      api: {
+        editMessageText: vi.fn().mockResolvedValue({}),
+        sendMessage: vi.fn().mockResolvedValue({}),
+      },
+    } as unknown as Bot<Context>;
+    await recoverAgyJobs(bot);
+    expect(bot.api.editMessageText).toHaveBeenCalledWith(777, 99, "🔴 Cursor agent failed.");
+    expect(bot.api.sendMessage).toHaveBeenCalledWith(777, "🔴 Cursor agent failed.");
+    expect(JSON.stringify(vi.mocked(bot.api.sendMessage).mock.calls)).not.toContain(
+      "synthetic-private-stderr",
+    );
+  });
+
+  it("reports a recorded AGY quota failure once after restart without starting a worker", async () => {
+    const { recoverAgyJobs, writeAgyJobRecord } =
+      await import("../../../src/app/services/agy-job-service.js");
+    await writeAgyJobRecord({
+      version: 1,
+      jobId: "12345678-1234-1234-1234-123456789abc",
+      unitName: "test-unit",
+      status: "failed",
+      startedAt: "2026-10-06T17:02:03.000Z",
+      completedAt: "2026-10-06T17:02:08.000Z",
+      modelName: "Test model",
+      projectDirectory: "/tmp/project",
+      activityLines: [],
+      error:
+        'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429,"short_error":"Resets in 136h25m44s. synthetic-private-stderr"}',
+      notification: { chatId: 777, progressMessageId: 99 },
+    });
+    const bot = {
+      api: {
+        editMessageText: vi.fn().mockResolvedValue({}),
+        sendMessage: vi.fn().mockResolvedValue({}),
+      },
+    } as unknown as Bot<Context>;
+    await recoverAgyJobs(bot);
+    await recoverAgyJobs(bot);
+    expect(bot.api.sendMessage).toHaveBeenCalledTimes(1);
+    expect(bot.api.sendMessage).toHaveBeenCalledWith(777, expect.stringContaining("HTTP 429"));
+    expect(bot.api.sendMessage).toHaveBeenCalledWith(777, expect.stringContaining("Duration: 5s"));
+    expect(JSON.stringify(vi.mocked(bot.api.sendMessage).mock.calls)).not.toContain(
+      "synthetic-private-stderr",
+    );
+    expect(mocked.spawnMock).not.toHaveBeenCalled();
+  });
+
+  it("launches a durable tmux worker with the configured environment", async () => {
+    process.env.AGY_WORKER_MODE = "tmux";
+    mocked.spawnMock.mockImplementation((file: string, args: string[]) => {
+      const child = createChild();
+      expect(file).toBe("/test/tmux");
+
+      setTimeout(async () => {
+        if (args[0] === "new-session") {
+          const requestFilename = (
+            await import("node:fs/promises").then(({ readdir }) => readdir(jobsDirectory))
+          ).find((filename) => filename.endsWith(".request.json"));
+          const requestPath = path.join(jobsDirectory, requestFilename as string);
+          const request = JSON.parse(await readFile(requestPath, "utf8")) as { jobId: string };
+          const recordPath = path.join(jobsDirectory, `${request.jobId}.json`);
+          const record = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown>;
+          await import("../../../src/app/services/agy-job-service.js").then(
+            ({ writeAgyJobRecord }) =>
+              writeAgyJobRecord({
+                ...record,
+                status: "completed",
+                completedAt: new Date().toISOString(),
+                output: "tmux result",
+              }),
+          );
+        }
+        child.emit("close", 0, null);
+      }, 0);
+
+      return child;
+    });
+
+    const { readAgyJobRecord, runDurableAgyJob } =
+      await import("../../../src/app/services/agy-job-service.js");
+    const result = await runDurableAgyJob({
+      prompt: "run on macOS",
+      projectDirectory: "/tmp/project",
+      modelName: "Gemini 3.5 Flash (High)",
+      timeoutMs: 60_000,
+    });
+
+    expect(result.output).toBe("tmux result");
+    expect(mocked.spawnMock).toHaveBeenCalledWith(
+      "/test/tmux",
+      expect.arrayContaining([
+        "new-session",
+        "-d",
+        "-e",
+        `AGY_JOBS_DIR=${jobsDirectory}`,
+        "-e",
+        "AGY_CLI_PATH=/test/agy",
+      ]),
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    expect((await readAgyJobRecord(result.jobId)).workerMode).toBe("tmux");
+  });
+
+  it("kills the active tmux session and records a user abort", async () => {
+    process.env.AGY_WORKER_MODE = "tmux";
+    mocked.spawnMock.mockImplementation(() => {
+      const child = createChild();
+      setTimeout(() => child.emit("close", 0, null), 0);
+      return child;
+    });
+    const { abortActiveAgyJob, DurableAgyJobAbortedError, readAgyJobRecord, runDurableAgyJob } =
+      await import("../../../src/app/services/agy-job-service.js");
+
+    const runPromise = runDurableAgyJob({
+      prompt: "long running macOS task",
+      projectDirectory: "/tmp/project",
+      modelName: "Test model",
+      timeoutMs: 60_000,
+    });
+    const rejected = expect(runPromise).rejects.toBeInstanceOf(DurableAgyJobAbortedError);
+    await vi.waitFor(() => expect(mocked.spawnMock).toHaveBeenCalled());
+
+    await expect(abortActiveAgyJob()).resolves.toBe(true);
+    await rejected;
+
+    const records = await Promise.all(
+      (await import("node:fs/promises").then(({ readdir }) => readdir(jobsDirectory)))
+        .filter((filename) => /^[0-9a-f-]+\.json$/.test(filename))
+        .map((filename) => readAgyJobRecord(filename.replace(/\.json$/, ""))),
+    );
+    expect(records[0]?.status).toBe("aborted");
+    expect(mocked.spawnMock).toHaveBeenCalledWith(
+      "/test/tmux",
+      ["kill-session", "-t", `=${records[0]?.unitName}`],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+  });
+
+  it("stops the active transient unit and records a user abort", async () => {
+    mocked.spawnMock.mockImplementation((file: string, args: string[]) => {
+      const child = createChild();
+      setTimeout(() => {
+        if (file === "/test/systemctl" && args.includes("is-active")) {
+          child.stdout.emit("data", Buffer.from("active\n"));
+        }
+        child.emit("close", 0, null);
+      }, 0);
+      return child;
+    });
+    const { abortActiveAgyJob, DurableAgyJobAbortedError, readAgyJobRecord, runDurableAgyJob } =
+      await import("../../../src/app/services/agy-job-service.js");
+
+    const runPromise = runDurableAgyJob({
+      prompt: "long running task",
+      projectDirectory: "/tmp/project",
+      modelName: "Test model",
+      timeoutMs: 60_000,
+    });
+    const rejected = expect(runPromise).rejects.toBeInstanceOf(DurableAgyJobAbortedError);
+    await vi.waitFor(() => expect(mocked.spawnMock).toHaveBeenCalled());
+
+    await expect(abortActiveAgyJob()).resolves.toBe(true);
+    await rejected;
+
+    const systemdArgs = mocked.spawnMock.mock.calls.find(
+      ([file, args]) => file === "/test/systemd-run" && Array.isArray(args),
+    )?.[1] as string[];
+    const unitArg = systemdArgs.find((arg) => arg.startsWith("--unit="));
+    const jobId = unitArg?.slice("--unit=tg-agy-".length);
+    const records = await Promise.all(
+      (await import("node:fs/promises").then(({ readdir }) => readdir(jobsDirectory)))
+        .filter((filename) => /^[0-9a-f-]+\.json$/.test(filename))
+        .map((filename) => readAgyJobRecord(filename.replace(/\.json$/, ""))),
+    );
+    expect(jobId).toBeTruthy();
+    expect(records).toHaveLength(1);
+    expect(records[0]?.status).toBe("aborted");
+    expect(mocked.spawnMock).toHaveBeenCalledWith(
+      "/test/systemctl",
+      ["--user", "stop", records[0]?.unitName],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+  });
+
+  it("splits long AGY results into Telegram-sized messages", async () => {
+    const { sendAgyResult } = await import("../../../src/app/services/agy-job-service.js");
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const bot = { api: { sendMessage } } as never;
+
+    await sendAgyResult(bot, 777, "Test model", "x".repeat(5_000));
+
+    expect(sendMessage.mock.calls.length).toBeGreaterThan(1);
+    for (const [, message] of sendMessage.mock.calls) {
+      expect((message as string).length).toBeLessThanOrEqual(4096);
+    }
+  });
+});

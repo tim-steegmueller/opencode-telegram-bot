@@ -42,6 +42,9 @@ async function readSettingsFile(): Promise<Settings> {
 let settingsWriteQueue: Promise<void> = Promise.resolve();
 
 function writeSettingsFile(settings: Settings): Promise<void> {
+  const settingsFilePath = getSettingsFilePath();
+  const content = JSON.stringify(settings, null, 2);
+
   settingsWriteQueue = settingsWriteQueue
     .catch(() => {
       // Keep write queue alive after failed writes.
@@ -49,9 +52,8 @@ function writeSettingsFile(settings: Settings): Promise<void> {
     .then(async () => {
       try {
         const fs = await import("fs/promises");
-        const settingsFilePath = getSettingsFilePath();
         await fs.mkdir(path.dirname(settingsFilePath), { recursive: true });
-        await fs.writeFile(settingsFilePath, JSON.stringify(settings, null, 2));
+        await fs.writeFile(settingsFilePath, content);
       } catch (err) {
         logger.error("[SettingsManager] Error writing settings file:", err);
       }
@@ -176,6 +178,26 @@ export function clearCurrentModel(): void {
   void writeSettingsFile(currentSettings);
 }
 
+export type AssistantMode = "opencode" | "agy" | "cursor";
+
+export function getAssistantMode(): AssistantMode {
+  return currentSettings.assistantMode ?? "opencode";
+}
+
+export function setAssistantMode(mode: AssistantMode): void {
+  currentSettings.assistantMode = mode;
+  void writeSettingsFile(currentSettings);
+}
+
+export function getAgyAccount(): string {
+  return currentSettings.agyAccount ?? "default";
+}
+
+export function setAgyAccount(alias: string): void {
+  currentSettings.agyAccount = alias;
+  void writeSettingsFile(currentSettings);
+}
+
 export function getPinnedMessageId(): number | undefined {
   return currentSettings.pinnedMessageId;
 }
@@ -272,9 +294,7 @@ function applyInitialSettingsPreset(preset: Record<string, unknown>): void {
     } else {
       // Boolean settings: compactOutputMode, showThinkingContent, showAssistantRunFooter, sendDiffFileAttachments
       if (typeof value !== "boolean") {
-        throw new Error(
-          `INITIAL_SETTINGS_PRESET: "${key}" must be a boolean.`,
-        );
+        throw new Error(`INITIAL_SETTINGS_PRESET: "${key}" must be a boolean.`);
       }
       switch (key) {
         case "compactOutputMode":
@@ -296,6 +316,10 @@ function applyInitialSettingsPreset(preset: Record<string, unknown>): void {
       }
     }
   }
+}
+
+export function __flushSettingsWritesForTests(): Promise<void> {
+  return settingsWriteQueue;
 }
 
 export async function loadSettings(): Promise<void> {

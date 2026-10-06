@@ -1,4 +1,5 @@
-import { getCurrentModel, setCurrentModel } from "../stores/settings-store.js";
+import { DEFAULT_AGY_MODEL_ID } from "./agy-model-service.js";
+import { getAssistantMode, getCurrentModel, setCurrentModel } from "../stores/settings-store.js";
 import { config } from "../../config.js";
 import { opencodeClient } from "../../opencode/client.js";
 import { logger } from "../../utils/logger.js";
@@ -339,7 +340,22 @@ export async function getModelSelectionLists(): Promise<ModelSelectionLists> {
 export async function reconcileStoredModelSelection(options?: {
   forceCatalogRefresh?: boolean;
 }): Promise<void> {
+  const assistantMode = getAssistantMode();
   const currentModel = getCurrentModel();
+
+  if (assistantMode !== "opencode") {
+    const defaultModel =
+      assistantMode === "agy"
+        ? { providerID: "antigravity", modelID: DEFAULT_AGY_MODEL_ID }
+        : { providerID: "cursor", modelID: "auto" };
+    if (currentModel?.providerID !== defaultModel.providerID || !currentModel.modelID) {
+      logger.warn(
+        `[ModelManager] ${assistantMode} mode has no compatible model, selecting ${defaultModel.providerID}/${defaultModel.modelID}`,
+      );
+      setCurrentModel({ ...defaultModel, variant: "default" });
+    }
+    return;
+  }
 
   if (!currentModel?.providerID || !currentModel.modelID) {
     return;
@@ -428,9 +444,7 @@ export async function searchModels(query: string): Promise<FavoriteModel[]> {
     })
     .slice(0, SEARCH_RESULTS_LIMIT);
 
-  logger.debug(
-    `[ModelManager] Model search: query="${query}", results=${results.length}`,
-  );
+  logger.debug(`[ModelManager] Model search: query="${query}", results=${results.length}`);
 
   return results;
 }
@@ -485,4 +499,13 @@ export function getStoredModel(): ModelInfo {
     modelID: "",
     variant: "default",
   };
+}
+
+/** Snapshot every model from the live provider catalog, without search-result limits. */
+export async function getFullModelCatalog(): Promise<FavoriteModel[]> {
+  const keys = await getValidModelKeys();
+  if (!keys || !cachedAllModels || modelCatalogCacheExpiresAt <= Date.now()) {
+    throw new Error("OpenCode model catalog is unavailable");
+  }
+  return cachedAllModels.map((model) => ({ ...model }));
 }

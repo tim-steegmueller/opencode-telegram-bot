@@ -9,7 +9,7 @@ export async function authMiddleware(ctx: Context, next: NextFunction): Promise<
     `[Auth] Checking access: userId=${userId}, allowedUserId=${config.telegram.allowedUserId}, hasCallbackQuery=${!!ctx.callbackQuery}, hasMessage=${!!ctx.message}`,
   );
 
-  if (userId && userId === config.telegram.allowedUserId) {
+  if (userId && userId === config.telegram.allowedUserId && ctx.chat?.type === "private") {
     logger.debug(`[Auth] Access granted for userId=${userId}`);
     await next();
   } else {

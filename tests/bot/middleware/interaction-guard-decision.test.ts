@@ -98,6 +98,37 @@ describe("interaction guard", () => {
     expect(decision.command).toBe("/status");
   });
 
+  it("lets /new leave idle model search but not unrelated custom interactions", () => {
+    interactionManager.start({
+      kind: "custom",
+      expectedInput: "text",
+      metadata: { flow: "model-search" },
+    });
+    expect(resolveInteractionGuardDecision(createContext({ text: "/new" })).allow).toBe(true);
+    expect(interactionManager.getSnapshot()).toBeNull();
+    interactionManager.start({
+      kind: "custom",
+      expectedInput: "text",
+      metadata: { flow: "another-flow" },
+    });
+    expect(resolveInteractionGuardDecision(createContext({ text: "/new" })).allow).toBe(false);
+    expect(interactionManager.getSnapshot()).not.toBeNull();
+  });
+
+  it("lets /new leave an idle inline menu instead of trapping the user", () => {
+    interactionManager.start({ kind: "inline", expectedInput: "callback" });
+    const decision = resolveInteractionGuardDecision(createContext({ text: "/new" }));
+    expect(decision.allow).toBe(true);
+    expect(interactionManager.getSnapshot()).toBeNull();
+  });
+
+  it("does not clear a permission decision when /new is requested", () => {
+    interactionManager.start({ kind: "permission", expectedInput: "callback" });
+    const decision = resolveInteractionGuardDecision(createContext({ text: "/new" }));
+    expect(decision.allow).toBe(false);
+    expect(interactionManager.getSnapshot()?.kind).toBe("permission");
+  });
+
   it("always allows /start even when command list is restricted", () => {
     interactionManager.start({
       kind: "inline",

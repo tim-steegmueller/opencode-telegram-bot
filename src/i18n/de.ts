@@ -7,6 +7,8 @@ export const de: I18nDictionary = {
   "cmd.description.detach": "Von aktueller Sitzung trennen",
   "cmd.description.sessions": "Sitzungen auflisten",
   "cmd.description.messages": "Sitzungsnachrichten durchsuchen",
+  "cmd.description.mode": "Assistentenmodus wählen",
+  "cmd.description.account": "AGY-Google-Konto wählen",
   "cmd.description.settings": "Bot-Einstellungen ändern",
   "cmd.description.projects": "Projekte auflisten",
   "cmd.description.worktree": "Git-Worktrees wechseln",
@@ -22,6 +24,12 @@ export const de: I18nDictionary = {
 
   "callback.unknown_command": "Unbekannter Befehl",
   "callback.processing_error": "Verarbeitungsfehler",
+  "account.prompt": "Wähle das Google-Konto für neue AGY-Jobs:",
+  "account.selected": "AGY-Konto gewählt: {account}",
+  "account.unavailable": "Dieses Account-Profil ist nicht verfügbar. Öffne /account erneut.",
+  "account.login_needed": "Anmeldung nötig",
+  "account.sign_in_required":
+    "Dieses Chrome-Konto ist noch nicht mit AGY angemeldet. Melde es zuerst im eigenen AGY-Profil an; das bisherige Konto bleibt gewählt.",
 
   "error.load_agents": "❌ Agentenliste konnte nicht geladen werden",
   "error.load_models": "❌ Modellliste konnte nicht geladen werden",
@@ -86,6 +94,8 @@ export const de: I18nDictionary = {
   "bot.session_reset_project_mismatch":
     "⚠️ Die aktive Sitzung passt nicht zum ausgewählten Projekt und wurde daher zurückgesetzt. Nutze /sessions zur Auswahl oder /new, um eine neue Sitzung zu erstellen.",
   "bot.prompt_send_error": "Anfrage konnte nicht an OpenCode gesendet werden.",
+  "bot.shutting_down":
+    "Der Bot wird gerade neu gestartet. Diese Anfrage wurde nicht gestartet; sende sie bitte gleich noch einmal.",
   "bot.session_error": "🔴 OpenCode meldete einen Fehler: {message}",
   "bot.session_retry":
     "🔁 {message}\n\nDer Provider liefert bei wiederholten Versuchen immer wieder denselben Fehler. Mit /abort abbrechen.",
@@ -105,6 +115,8 @@ export const de: I18nDictionary = {
   "bot.photo_download_error": "🔴 Foto konnte nicht heruntergeladen werden",
   "bot.photo_no_caption":
     "💡 Tipp: Füge eine Bildunterschrift hinzu, um zu beschreiben, was du mit diesem Foto tun möchtest.",
+  "bot.photo_waiting_for_prompt":
+    "📎 Bild gespeichert. Sende innerhalb von {minutes} Minuten Text oder eine Sprachnachricht dazu.",
   "bot.file_downloading": "⏳ Lade Datei herunter...",
   "bot.files_downloading": "⏳ Lade Dateien herunter...",
   "bot.file_too_large": "⚠️ Datei ist zu groß (max. {maxSizeMb}MB)",
@@ -130,6 +142,8 @@ export const de: I18nDictionary = {
   "status.line.uptime_sec": "Betriebszeit: {seconds} s",
   "status.line.mode": "Agent: {mode}",
   "status.line.model": "Modell: {model}",
+  "status.model_unverified": "{model} (Verfügbarkeit nicht bestätigt)",
+  "status.line.account": "Konto: {account}",
   "status.line.tts": "Audioantworten: {tts}",
   "status.tts.off": "Aus",
   "status.tts.all": "Alle",
@@ -151,6 +165,42 @@ export const de: I18nDictionary = {
   "tts.not_configured":
     "⚠️ Audioantworten sind nicht verfugbar. Setze zuerst `TTS_API_URL` und `TTS_API_KEY`.",
   "tts.failed": "⚠️ Audioreply konnte nicht erzeugt werden.",
+  "mode.prompt": "Assistentenmodus auswählen:",
+  "mode.option.opencode": "OpenCode-Agent",
+  "mode.option.agy": "AGY-Agent",
+  "mode.option.cursor": "Cursor-Agent",
+  "mode.selected.opencode": "OpenCode-Modus ausgewählt.",
+  "mode.selected.agy": "AGY-Agentenmodus ausgewählt.",
+  "mode.selected.cursor": "Cursor-Agentenmodus ausgewählt.",
+  "agy.started": "🚀 AGY-Agent mit {model} gestartet...",
+  "agy.running": "⏳ AGY läuft noch mit {model} ({seconds}s)...",
+  "agy.finished_status": "✅ AGY-Agent abgeschlossen.",
+  "agy.activity.command": "Shell-Befehl angefordert.",
+  "agy.activity.confirmation": "Tool bestätigt.",
+  "agy.activity.error": "Tool fehlgeschlagen. Details stehen im lokalen AGY-Log.",
+  "agy.failure.quota": "Der Anbieter meldet ein ausgeschöpftes Kontingent oder ein Anfragelimit.",
+  "agy.failure.auth": "Der Anbieter hat den Zugriff abgewiesen. Prüfe das gewählte Konto und dessen Berechtigungen.",
+  "agy.failure.timeout": "AGY hat das Zeitlimit beim Warten auf eine Antwort erreicht.",
+  "agy.failure.unavailable": "Der Anbieter ist vorübergehend nicht erreichbar.",
+  "agy.failure.unknown": "Die Ursache ist nicht eingeordnet. Details bleiben im lokalen AGY-Log.",
+  "agy.failure.context": "Modell: {model} | Dauer: {seconds}s",
+  "agy.failure.reset": "Vom Anbieter beim Fehler gemeldete Wartezeit: {duration}",
+  "agy.failure.reference": "Fehlerreferenz: {id}",
+  "agy.failure.no_retry": "Kein automatischer Neuversuch und kein Konto- oder Modellwechsel.",
+  "agy.failed_status": "🔴 AGY-Agent fehlgeschlagen.",
+  "agy.busy":
+    "⏳ Der AGY-Agent läuft bereits. Warte auf den Abschluss, bevor du die nächste Aufgabe sendest.",
+  "agy.attachments_unsupported":
+    "⚠️ Der AGY-Modus unterstützt aktuell nur Text-Prompts. Für Dateien oder Bilder bitte in den OpenCode-Modus wechseln.",
+  "agy.response": "AGY ({model}) ist fertig:\n\n{output}",
+  "agy.error": "🔴 AGY-Agent fehlgeschlagen:\n\n{error}",
+  "cursor.started": "🚀 Cursor-Agent mit {model} gestartet...",
+  "cursor.running": "⏳ Cursor arbeitet mit {model} weiter ({seconds}s)...",
+  "cursor.finished_status": "✅ Cursor-Agent abgeschlossen.",
+  "cursor.failed_status": "🔴 Cursor-Agent fehlgeschlagen.",
+  "cursor.busy":
+    "⏳ Cursor arbeitet noch. Den Fortschritt siehst du in der laufenden Statusnachricht; mit /abort kannst du abbrechen.",
+  "cursor.error": "🔴 Cursor-Agent fehlgeschlagen:\n\n{error}",
 
   "settings.menu.title":
     "⚙️ Bot-Einstellungen\nTippen Sie auf eine Einstellung, um ihren Wert umzuschalten:",
@@ -327,6 +377,12 @@ export const de: I18nDictionary = {
   "model.menu.favorites_hint":
     "ℹ️ Füge Modelle in OpenCode CLI zu den Favoriten hinzu, damit sie oben angezeigt werden.",
   "model.menu.error": "🔴 Modellliste konnte nicht geladen werden",
+  "model.catalog.button": "Alle Anbieter und Modelle",
+  "model.catalog.previous": "Zurück",
+  "model.catalog.next": "Weiter",
+  "model.catalog.providers_button": "Alle Anbieter",
+  "model.catalog.providers": "Anbieter: {total} · Modelle: {models} · Seite {page}/{pages}",
+  "model.catalog.models": "{provider}: {total} Modelle · Seite {page}/{pages}",
   "model.search.button": "🔍 Suche",
   "model.search.prompt": "🔍 Modellnamen zum Suchen eingeben:",
   "model.search.results_title": 'Suchergebnisse für "{query}":',

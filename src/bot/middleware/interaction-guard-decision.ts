@@ -187,6 +187,14 @@ export function resolveInteractionGuardDecision(ctx: Context): GuardDecision {
   }
 
   if (inputType === "command") {
+    if (
+      command === "/new" &&
+      (state.kind === "inline" ||
+        (state.kind === "custom" && state.metadata.flow === "model-search"))
+    ) {
+      interactionManager.clear("inline_menu_new_session");
+      return createAllowDecision(inputType, null, command);
+    }
     if (command === "/start") {
       return createAllowDecision(inputType, state, command);
     }

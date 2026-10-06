@@ -4,6 +4,7 @@ import type { Context } from "grammy";
 const mocked = vi.hoisted(() => ({
   clearAllInteractionState: vi.fn(),
   handleAgentSelect: vi.fn(),
+  handleAccountCallback: vi.fn(),
   handleCommandsCallback: vi.fn(),
   handleCompactConfirm: vi.fn(),
   handleLsCallback: vi.fn(),
@@ -42,6 +43,9 @@ vi.mock("../../../src/utils/logger.js", () => ({
 }));
 vi.mock("../../../src/bot/callbacks/agent-selection-callback-handler.js", () => ({
   handleAgentSelect: mocked.handleAgentSelect,
+}));
+vi.mock("../../../src/bot/callbacks/account-callback-handler.js", () => ({
+  handleAccountCallback: mocked.handleAccountCallback,
 }));
 vi.mock("../../../src/bot/callbacks/command-catalog-callback-handler.js", () => ({
   handleCommandsCallback: mocked.handleCommandsCallback,
@@ -105,6 +109,7 @@ import { registerCallbackRouter } from "../../../src/bot/callbacks/callback-rout
 
 const allHandlers = [
   mocked.handleAgentSelect,
+  mocked.handleAccountCallback,
   mocked.handleCommandsCallback,
   mocked.handleCompactConfirm,
   mocked.handleLsCallback,

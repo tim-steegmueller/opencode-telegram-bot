@@ -7,10 +7,21 @@ import {
   setCurrentSession,
 } from "../../app/services/session-service.js";
 import { ingestSessionInfoForCache } from "../../app/services/session-cache-service.js";
-import { getCurrentProject, getTtsMode } from "../../app/stores/settings-store.js";
+import {
+  getAssistantMode,
+  getCurrentProject,
+  getTtsMode,
+} from "../../app/stores/settings-store.js";
 import { getStoredAgent, resolveProjectAgent } from "../../app/services/agent-selection-service.js";
 import { getStoredModel } from "../../app/services/model-selection-service.js";
+import {
+  isAgyAgentRunActive,
+  resolveAgyModelName,
+  runAgyAgentPrompt,
+} from "../../app/services/agy-agent-service.js";
 import { formatVariantForButton } from "../../app/services/variant-selection-service.js";
+import { AgentRunAbortedError } from "../../app/services/agent-run-service.js";
+import { formatAgyFailure } from "../../app/services/agy-error-service.js";
 import { createMainKeyboard } from "../keyboards/main-reply-keyboard.js";
 import { keyboardManager } from "../keyboards/keyboard-manager.js";
 import { pinnedMessageManager } from "../pinned/pinned-message-manager.js";
@@ -31,6 +42,23 @@ import {
   markAttachedSessionIdle,
 } from "../../app/services/attach-service.js";
 import { externalUserInputSuppressionManager } from "../../app/managers/external-input-suppression-manager.js";
+import {
+  clearPendingAttachments,
+  getPendingAttachments,
+} from "../../app/services/pending-attachment-service.js";
+import { resolveSelectedAgyAccount } from "../../app/services/agy-account-service.js";
+import { isAppShuttingDown } from "../../app/services/app-lifecycle-service.js";
+import {
+  isCursorAgentRunActive,
+  runCursorAgentPrompt,
+} from "../../app/services/cursor-agent-service.js";
+import {
+  markAgyJobNotified,
+  DurableAgyJobAbortedError,
+  DurableAgyJobError,
+  sendAgyResult,
+  sendAgentResult,
+} from "../../app/services/agy-job-service.js";
 
 /** Module-level references for async callbacks that don't have ctx. */
 let botInstance: Bot<Context> | null = null;
@@ -134,6 +162,11 @@ export async function processUserPrompt(
   const responseMode =
     options.responseMode ?? (getTtsMode() === "all" ? "text_and_tts" : "text_only");
 
+  if (isAppShuttingDown()) {
+    await ctx.reply(t("bot.shutting_down"));
+    return false;
+  }
+
   const currentProject = getCurrentProject();
   if (!currentProject) {
     await ctx.reply(t("bot.project_not_selected"));
@@ -142,6 +175,300 @@ export async function processUserPrompt(
 
   botInstance = bot;
   chatIdInstance = ctx.chat!.id;
+  const selectedModel = getStoredModel();
+  const attachmentParts = [...getPendingAttachments(ctx.chat!.id), ...fileParts];
+
+  if (getAssistantMode() === "cursor") {
+    if (isCursorAgentRunActive()) {
+      await ctx.reply(t("cursor.busy"));
+      return false;
+    }
+
+    const modelName = selectedModel.modelID;
+    const progressMessage = await ctx.reply(t("cursor.started", { model: modelName }));
+    const startedAt = Date.now();
+    const activityLines: string[] = [];
+    let lastStatusText = "";
+    let lastStatusUpdateAt = 0;
+    const appendActivityLines = (baseText: string): string => {
+      if (activityLines.length === 0) {
+        return baseText;
+      }
+      return `${baseText}\n\n${activityLines.map((line) => `• ${line}`).join("\n")}`;
+    };
+    const renderStatusText = (): string => {
+      const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      return appendActivityLines(t("cursor.running", { model: modelName, seconds }));
+    };
+    const updateProgressMessage = (force = false): void => {
+      const now = Date.now();
+      if (!force && now - lastStatusUpdateAt < 3_000) {
+        return;
+      }
+
+      const statusText = renderStatusText();
+      if (statusText === lastStatusText) {
+        return;
+      }
+      lastStatusText = statusText;
+      lastStatusUpdateAt = now;
+      void bot.api
+        .editMessageText(ctx.chat!.id, progressMessage.message_id, statusText)
+        .catch((sendError) => {
+          logger.debug("[Cursor] Failed to update progress message:", sendError);
+        });
+    };
+    const sendTyping = (): void => {
+      void bot.api.sendChatAction(ctx.chat!.id, "typing").catch((sendError) => {
+        logger.debug("[Cursor] Failed to send typing indicator:", sendError);
+      });
+    };
+    let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
+      updateProgressMessage(true);
+    }, 15_000);
+    let typingIndicator: ReturnType<typeof setInterval> | null = setInterval(sendTyping, 4_000);
+    heartbeat.unref?.();
+    typingIndicator.unref?.();
+    sendTyping();
+
+    const stopProgress = (): void => {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      if (typingIndicator) {
+        clearInterval(typingIndicator);
+        typingIndicator = null;
+      }
+    };
+
+    safeBackgroundTask({
+      taskName: "cursor.agent",
+      task: () =>
+        runCursorAgentPrompt({
+          prompt: text,
+          projectDirectory: currentProject.worktree,
+          model: selectedModel,
+          attachments: attachmentParts,
+          notification: {
+            chatId: ctx.chat!.id,
+            progressMessageId: progressMessage.message_id,
+          },
+          onProgress: (line) => {
+            if (!activityLines.includes(line)) {
+              activityLines.push(line);
+              while (activityLines.length > 8) {
+                activityLines.shift();
+              }
+            }
+            updateProgressMessage();
+          },
+        }),
+      onSuccess: async (result) => {
+        stopProgress();
+        await bot.api
+          .editMessageText(
+            ctx.chat!.id,
+            progressMessage.message_id,
+            appendActivityLines(t("cursor.finished_status")),
+          )
+          .catch((sendError) => {
+            logger.debug("[Cursor] Failed to mark progress message as finished:", sendError);
+          });
+        await sendAgentResult(bot, ctx.chat!.id, "Cursor", result.modelName, result.output);
+        if (result.jobId) {
+          await markAgyJobNotified(result.jobId);
+        }
+        logger.info(`[Cursor] Agent run completed model="${result.modelName}"`);
+      },
+      onError: async (error) => {
+        stopProgress();
+        if (error instanceof DurableAgyJobAbortedError || error instanceof AgentRunAbortedError) {
+          await bot.api
+            .editMessageText(ctx.chat!.id, progressMessage.message_id, t("stop.success"))
+            .catch(() => {});
+          if (error instanceof DurableAgyJobAbortedError) {
+            await markAgyJobNotified(error.jobId);
+          }
+          return;
+        }
+        await bot.api
+          .editMessageText(
+            ctx.chat!.id,
+            progressMessage.message_id,
+            appendActivityLines(t("cursor.failed_status")),
+          )
+          .catch((sendError) => {
+            logger.debug("[Cursor] Failed to mark progress message as failed:", sendError);
+          });
+        logger.error("[Cursor] Agent run failed:", error);
+        await bot.api.sendMessage(ctx.chat!.id, t("cursor.failed_status"));
+        if (error instanceof DurableAgyJobError) {
+          await markAgyJobNotified(error.jobId);
+        }
+      },
+    });
+
+    clearPendingAttachments(ctx.chat!.id);
+    return true;
+  }
+
+  if (getAssistantMode() === "agy") {
+    if (isAgyAgentRunActive()) {
+      await ctx.reply(t("agy.busy"));
+      return false;
+    }
+
+    const agyAccount = await resolveSelectedAgyAccount().catch((error) => {
+      logger.warn("[AGY] Selected account profile is unavailable", error);
+      return null;
+    });
+    if (!agyAccount) {
+      await ctx.reply(t("account.unavailable"));
+      return false;
+    }
+    if (isAppShuttingDown()) {
+      await ctx.reply(t("bot.shutting_down"));
+      return false;
+    }
+    let modelName: string;
+    try {
+      modelName = await resolveAgyModelName(selectedModel, agyAccount.homeDirectory);
+    } catch (error) {
+      logger.error("[AGY] Failed to resolve the selected model:", error);
+      await ctx.reply(t("model.menu.error"));
+      return false;
+    }
+    const progressMessage = await ctx.reply(t("agy.started", { model: modelName }));
+    const startedAt = Date.now();
+    const activityLines: string[] = [];
+    let lastStatusText = "";
+    let lastStatusUpdateAt = 0;
+    const renderStatusText = (): string => {
+      const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      const baseText = t("agy.running", { model: modelName, seconds });
+      return appendActivityLines(baseText);
+    };
+    const appendActivityLines = (baseText: string): string => {
+      if (activityLines.length === 0) {
+        return baseText;
+      }
+
+      return `${baseText}\n\n${activityLines.map((line) => `• ${line}`).join("\n")}`;
+    };
+    const updateProgressMessage = (force = false): void => {
+      const now = Date.now();
+      if (!force && now - lastStatusUpdateAt < 3_000) {
+        return;
+      }
+
+      const statusText = renderStatusText();
+      if (statusText === lastStatusText) {
+        return;
+      }
+
+      lastStatusText = statusText;
+      lastStatusUpdateAt = now;
+      void bot.api
+        .editMessageText(ctx.chat!.id, progressMessage.message_id, statusText)
+        .catch((sendError) => {
+          logger.debug("[AGY] Failed to update progress message:", sendError);
+        });
+    };
+    let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
+      updateProgressMessage(true);
+    }, 15_000);
+    heartbeat.unref?.();
+
+    const stopHeartbeat = () => {
+      if (!heartbeat) {
+        return;
+      }
+
+      clearInterval(heartbeat);
+      heartbeat = null;
+    };
+
+    safeBackgroundTask({
+      taskName: "agy.agent",
+      task: () =>
+        runAgyAgentPrompt({
+          prompt: text,
+          projectDirectory: currentProject.worktree,
+          model: selectedModel,
+          attachments: attachmentParts,
+          accountHome: agyAccount.homeDirectory,
+          notification: {
+            chatId: ctx.chat!.id,
+            progressMessageId: progressMessage.message_id,
+          },
+          onProgress: (line) => {
+            if (!activityLines.includes(line)) {
+              activityLines.push(line);
+              while (activityLines.length > 8) {
+                activityLines.shift();
+              }
+            }
+
+            updateProgressMessage();
+          },
+        }),
+      onSuccess: async (result) => {
+        stopHeartbeat();
+        await bot.api
+          .editMessageText(
+            ctx.chat!.id,
+            progressMessage.message_id,
+            appendActivityLines(t("agy.finished_status")),
+          )
+          .catch((sendError) => {
+            logger.debug("[AGY] Failed to mark progress message as finished:", sendError);
+          });
+        await sendAgyResult(bot, ctx.chat!.id, result.modelName, result.output);
+        if (result.jobId) {
+          await markAgyJobNotified(result.jobId);
+        }
+        logger.info(
+          `[AGY] Agent run completed model="${result.modelName}"${result.jobId ? ` job=${result.jobId}` : ""}`,
+        );
+      },
+      onError: async (error) => {
+        stopHeartbeat();
+        if (error instanceof DurableAgyJobAbortedError || error instanceof AgentRunAbortedError) {
+          await bot.api
+            .editMessageText(ctx.chat!.id, progressMessage.message_id, t("stop.success"))
+            .catch((sendError) => {
+              logger.debug("[AGY] Failed to mark progress message as aborted:", sendError);
+            });
+          if (error instanceof DurableAgyJobAbortedError) {
+            await markAgyJobNotified(error.jobId);
+          }
+          return;
+        }
+
+        await bot.api
+          .editMessageText(
+            ctx.chat!.id,
+            progressMessage.message_id,
+            appendActivityLines(t("agy.failed_status")),
+          )
+          .catch((sendError) => {
+            logger.debug("[AGY] Failed to mark progress message as failed:", sendError);
+          });
+        logger.error("[AGY] Agent run failed:", error);
+        await bot.api.sendMessage(
+          ctx.chat!.id,
+          formatAgyFailure(error, modelName, (Date.now() - startedAt) / 1000),
+        );
+        if (error instanceof DurableAgyJobError) {
+          await markAgyJobNotified(error.jobId);
+        }
+      },
+    });
+
+    clearPendingAttachments(ctx.chat!.id);
+    return true;
+  }
 
   let currentSession = getCurrentSession();
   let createdNewSession = false;
@@ -231,13 +558,14 @@ export async function processUserPrompt(
     }
 
     // Add file parts
-    parts.push(...fileParts);
+    parts.push(...attachmentParts);
 
     // If no text and files exist, use a placeholder
     if (parts.length === 0 || (parts.length > 0 && parts.every((p) => p.type === "file"))) {
-      if (fileParts.length > 0) {
+      if (attachmentParts.length > 0) {
         // Files without text - add a minimal system prompt
-        const attachmentText = fileParts.length === 1 ? "See attached file" : "See attached files";
+        const attachmentText =
+          attachmentParts.length === 1 ? "See attached file" : "See attached files";
         parts.unshift({ type: "text", text: attachmentText });
       }
     }
@@ -277,12 +605,17 @@ export async function processUserPrompt(
       modelId: storedModel.modelID || "default",
       variant: storedModel.variant || "default",
       promptLength: text.length,
-      fileCount: fileParts.length,
+      fileCount: attachmentParts.length,
     };
 
     logger.info(
-      `[Bot] Calling session.promptAsync (start-only) with agent=${currentAgent}, fileCount=${fileParts.length}...`,
+      `[Bot] Calling session.promptAsync (start-only) with agent=${currentAgent}, fileCount=${attachmentParts.length}...`,
     );
+
+    if (isAppShuttingDown()) {
+      await ctx.reply(t("bot.shutting_down"));
+      return false;
+    }
 
     foregroundSessionState.markBusy(currentSession.id, currentSession.directory);
     await markAttachedSessionBusy(currentSession.id);
@@ -340,6 +673,7 @@ export async function processUserPrompt(
       },
     });
 
+    clearPendingAttachments(ctx.chat!.id);
     return true;
   } catch (err) {
     if (currentSession) {

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   configMock,
   providersMock,
+  getAssistantModeMock,
   getCurrentModelMock,
   setCurrentModelMock,
   setCurrentModelState,
@@ -35,6 +36,7 @@ const {
       },
     },
     providersMock: vi.fn(),
+    getAssistantModeMock: vi.fn(() => "opencode"),
     getCurrentModelMock,
     setCurrentModelMock,
     setCurrentModelState: (modelInfo?: {
@@ -70,6 +72,7 @@ vi.mock("../../../src/opencode/client.js", () => ({
 }));
 
 vi.mock("../../../src/app/stores/settings-store.js", () => ({
+  getAssistantMode: getAssistantModeMock,
   getCurrentModel: getCurrentModelMock,
   setCurrentModel: setCurrentModelMock,
 }));
@@ -86,6 +89,7 @@ vi.mock("../../../src/utils/logger.js", () => ({
 import {
   __resetModelCatalogCacheForTests,
   getFavoriteModels,
+  getFullModelCatalog,
   getModelSelectionLists,
   reconcileStoredModelSelection,
   searchModels,
@@ -102,6 +106,36 @@ function createProvidersResponse(modelsByProvider: Record<string, string[]>) {
     error: null,
   };
 }
+
+describe("full catalog snapshot", () => {
+  beforeEach(() => {
+    __resetModelCatalogCacheForTests();
+    providersMock.mockReset();
+  });
+  it("includes all 29 Go models rather than limiting the result to ten", async () => {
+    providersMock.mockResolvedValue({
+      data: {
+        providers: [
+          {
+            id: "opencode-go",
+            models: Object.fromEntries(
+              Array.from({ length: 29 }, (_, n) => ["deepseek-test-" + n, {}]),
+            ),
+          },
+        ],
+      },
+    });
+    const models = await getFullModelCatalog();
+    expect(models).toHaveLength(29);
+    expect(models.every((m) => m.providerID === "opencode-go")).toBe(true);
+    models[0].modelID = "changed";
+    expect((await getFullModelCatalog())[0].modelID).not.toBe("changed");
+  });
+  it("reports an unavailable catalog instead of displaying a static fallback", async () => {
+    providersMock.mockResolvedValue({ error: new Error("unavailable") });
+    await expect(getFullModelCatalog()).rejects.toThrow("unavailable");
+  });
+});
 
 describe("app/services/model-selection-service", () => {
   let tempDir = "";
@@ -122,6 +156,8 @@ describe("app/services/model-selection-service", () => {
     loggerDebugMock.mockReset();
 
     providersMock.mockReset();
+    getAssistantModeMock.mockReset();
+    getAssistantModeMock.mockReturnValue("opencode");
     providersMock.mockResolvedValue(
       createProvidersResponse({
         opencode: ["big-pickle"],
@@ -427,6 +463,44 @@ describe("app/services/model-selection-service", () => {
   });
 
   describe("reconcileStoredModelSelection", () => {
+    it("does not validate external agent models against the OpenCode catalog", async () => {
+      getAssistantModeMock.mockReturnValue("agy");
+      setCurrentModelState({
+        providerID: "antigravity",
+        modelID: "gemini-3.5-flash-high",
+        variant: "default",
+      });
+
+      await reconcileStoredModelSelection({ forceCatalogRefresh: true });
+
+      expect(providersMock).not.toHaveBeenCalled();
+      expect(setCurrentModelMock).not.toHaveBeenCalled();
+      expect(getCurrentModelState()).toEqual({
+        providerID: "antigravity",
+        modelID: "gemini-3.5-flash-high",
+        variant: "default",
+      });
+    });
+
+    it("repairs an external agent mode without a compatible model", async () => {
+      getAssistantModeMock.mockReturnValue("cursor");
+      setCurrentModelState({
+        providerID: "opencode",
+        modelID: "big-pickle",
+        variant: "high",
+      });
+
+      await reconcileStoredModelSelection();
+
+      expect(providersMock).not.toHaveBeenCalled();
+      expect(getCurrentModelState()).toEqual({
+        providerID: "cursor",
+        modelID: "auto",
+        variant: "default",
+      });
+      expect(setCurrentModelMock).toHaveBeenCalledTimes(1);
+    });
+
     it("logs a short warning without stack when OpenCode server is unavailable", async () => {
       setCurrentModelState({ providerID: "openai", modelID: "gpt-4o", variant: "high" });
       providersMock.mockResolvedValueOnce({ data: null, error: new TypeError("fetch failed") });

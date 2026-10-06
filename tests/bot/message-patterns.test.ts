@@ -25,6 +25,11 @@ describe("bot/message-patterns", () => {
     expect("🧠 cliproxyapi2/gpt-5.3-codex").toMatch(MODEL_BUTTON_TEXT_PATTERN);
   });
 
+  it("keeps legacy external-engine model keyboards usable", () => {
+    expect("🤖 cursor\ncursor-grok-4.5-high").toMatch(MODEL_BUTTON_TEXT_PATTERN);
+    expect("🧠 antigravity\ngemini-3.8-flash-high").toMatch(MODEL_BUTTON_TEXT_PATTERN);
+  });
+
   it("does not treat custom agent labels as model buttons", () => {
     expect("🤖 Reviewer Agent").not.toMatch(MODEL_BUTTON_TEXT_PATTERN);
   });

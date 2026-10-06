@@ -7,9 +7,21 @@ import {
   isTextMimeType,
   isFileSizeAllowed,
 } from "../../app/services/file-download-service.js";
-import { isDocExtractorConfigured, extractDocument } from "../../app/services/document-extractor-service.js";
-import { getModelCapabilities, supportsInput } from "../../app/services/model-capabilities-service.js";
+import {
+  isDocExtractorConfigured,
+  extractDocument,
+} from "../../app/services/document-extractor-service.js";
+import {
+  isSttConfigured,
+  transcribeAudio,
+  type SttResult,
+} from "../../app/services/stt-service.js";
+import {
+  getModelCapabilities,
+  supportsInput,
+} from "../../app/services/model-capabilities-service.js";
 import { getStoredModel } from "../../app/services/model-selection-service.js";
+import { getAssistantMode, type AssistantMode } from "../../app/stores/settings-store.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../i18n/index.js";
 import type { FilePartInput, Model } from "@opencode-ai/sdk/v2";
@@ -25,6 +37,9 @@ export interface DocumentHandlerDeps extends ProcessPromptDeps {
     modelId: string,
   ) => Promise<Model["capabilities"] | null>;
   getStoredModel?: () => { providerID: string; modelID: string };
+  getAssistantMode?: () => AssistantMode;
+  isSttConfigured?: () => boolean;
+  transcribeAudio?: (audioBuffer: Buffer, filename: string) => Promise<SttResult>;
   processPrompt?: (
     ctx: Context,
     text: string,
@@ -40,6 +55,9 @@ export async function handleDocumentMessage(
   const downloadFile = deps.downloadFile ?? downloadTelegramFile;
   const getCapabilities = deps.getModelCapabilities ?? getModelCapabilities;
   const getStored = deps.getStoredModel ?? getStoredModel;
+  const getMode = deps.getAssistantMode ?? getAssistantMode;
+  const sttConfigured = deps.isSttConfigured ?? isSttConfigured;
+  const transcribe = deps.transcribeAudio ?? transcribeAudio;
   const processPrompt = deps.processPrompt ?? processUserPrompt;
 
   const doc = ctx.message?.document;
@@ -82,9 +100,13 @@ export async function handleDocumentMessage(
 
     if (mimeType.startsWith("image/")) {
       const storedModel = getStored();
-      const capabilities = await getCapabilities(storedModel.providerID, storedModel.modelID);
+      const assistantMode = getMode();
+      const capabilities =
+        assistantMode !== "opencode"
+          ? null
+          : await getCapabilities(storedModel.providerID, storedModel.modelID);
 
-      if (!supportsInput(capabilities, "image")) {
+      if (assistantMode === "opencode" && !supportsInput(capabilities, "image")) {
         logger.warn(
           `[Document] Model ${storedModel.providerID}/${storedModel.modelID} doesn't support image input`,
         );
@@ -132,9 +154,13 @@ export async function handleDocumentMessage(
 
     if (DOCUMENT_MIME_TYPES.includes(mimeType)) {
       const storedModel = getStored();
-      const capabilities = await getCapabilities(storedModel.providerID, storedModel.modelID);
+      const assistantMode = getMode();
+      const capabilities =
+        assistantMode !== "opencode"
+          ? null
+          : await getCapabilities(storedModel.providerID, storedModel.modelID);
 
-      if (!supportsInput(capabilities, "pdf")) {
+      if (assistantMode === "opencode" && !supportsInput(capabilities, "pdf")) {
         if (isDocExtractorConfigured()) {
           logger.warn(
             `[Document] Model doesn't support PDF input, delegating document to DOC_EXTRACTOR_URL`,
@@ -186,6 +212,35 @@ export async function handleDocumentMessage(
       );
 
       await processPrompt(ctx, caption, deps, [filePart]);
+      return;
+    }
+
+    if (mimeType.startsWith("video/")) {
+      if (!sttConfigured()) {
+        await ctx.reply(t("stt.not_configured"));
+        return;
+      }
+
+      await ctx.reply(t("bot.file_downloading"));
+      const downloadedFile = await downloadFile(ctx.api, doc.file_id);
+      const downloadedFilename = downloadedFile.filePath.split("/").pop() || filename;
+      const result = await transcribe(downloadedFile.buffer, downloadedFilename);
+      const recognizedText = result.text.trim();
+
+      if (!recognizedText) {
+        await ctx.reply(t("stt.empty_result"));
+        return;
+      }
+
+      logger.info(
+        `[Document] Transcribed video document (${downloadedFile.buffer.length} bytes, ${filename}, ${mimeType}): ${recognizedText.length} chars`,
+      );
+
+      const prompt = caption.trim()
+        ? `${caption.trim()}\n\n--- Transcribed audio from ${filename} ---\n${recognizedText}`
+        : recognizedText;
+
+      await processPrompt(ctx, prompt, deps);
       return;
     }
 

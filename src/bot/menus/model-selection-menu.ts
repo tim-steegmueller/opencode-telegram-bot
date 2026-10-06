@@ -1,3 +1,4 @@
+import { MODEL_CATALOG_CALLBACK } from "./model-catalog-menu.js";
 import { Context, InlineKeyboard } from "grammy";
 import {
   fetchCurrentModel,
@@ -7,6 +8,9 @@ import type { FavoriteModel, ModelInfo, ModelSelectionLists } from "../../app/ty
 import { logger } from "../../utils/logger.js";
 import { t } from "../../i18n/index.js";
 import { replyWithInlineMenu } from "./inline-menu.js";
+import { getAssistantMode } from "../../app/stores/settings-store.js";
+import { listCursorModels } from "../../app/services/cursor-agent-service.js";
+import { listAgyModels } from "../../app/services/agy-model-service.js";
 
 export const MODEL_SEARCH_CALLBACK = "model:search";
 export const MODEL_SEARCH_AGAIN_CALLBACK = "model:search:again";
@@ -17,6 +21,53 @@ type ModelListKind = "favorites" | "recent";
 
 export function buildModelListCallback(kind: ModelListKind, index: number): string {
   return `${MODEL_LIST_CALLBACK_PREFIX}${kind}:${index}`;
+}
+
+const CURSOR_FAVORITE_MODEL_IDS = [
+  "auto",
+  "gpt-5.6-sol-high",
+  "claude-opus-4-8-thinking-high",
+  "composer-2.5",
+  "gemini-3.5-flash",
+  "kimi-k2.7-code",
+  "glm-5.2-high",
+];
+
+export async function buildAgyModelSelectionMenu(
+  currentModel?: ModelInfo,
+): Promise<InlineKeyboard> {
+  const models = await listAgyModels();
+  const keyboard = new InlineKeyboard().text(t("model.search.button"), MODEL_SEARCH_CALLBACK).row();
+  for (const [index, model] of models.entries()) {
+    const isActive =
+      currentModel?.providerID === model.providerID && currentModel.modelID === model.modelID;
+    const label = `${isActive ? "✅ " : ""}${model.modelID}`;
+    keyboard.text(label, `model:${model.providerID}:${model.modelID}`);
+    if (index < models.length - 1) {
+      keyboard.row();
+    }
+  }
+
+  return keyboard;
+}
+
+export async function buildCursorModelSelectionMenu(
+  currentModel?: ModelInfo,
+): Promise<InlineKeyboard> {
+  const availableModels = await listCursorModels();
+  const availableById = new Map(availableModels.map((model) => [model.modelID, model]));
+  const featured = CURSOR_FAVORITE_MODEL_IDS.map((id) => availableById.get(id)).filter(
+    (model): model is NonNullable<typeof model> => Boolean(model),
+  );
+  const keyboard = new InlineKeyboard().text(t("model.search.button"), MODEL_SEARCH_CALLBACK).row();
+  for (const model of featured) {
+    const isActive =
+      currentModel?.providerID === "cursor" && currentModel.modelID === model.modelID;
+    keyboard
+      .text(`${isActive ? "✅ " : ""}${model.displayName}`, `model:cursor:${model.modelID}`)
+      .row();
+  }
+  return keyboard;
 }
 
 function buildModelSelectionMenuText(modelLists: ModelSelectionLists): string {
@@ -49,6 +100,7 @@ export async function buildModelSelectionMenu(
 
   // Search button — always present as first row
   keyboard.text(t("model.search.button"), MODEL_SEARCH_CALLBACK).row();
+  keyboard.text(t("model.catalog.button"), MODEL_CATALOG_CALLBACK).row();
 
   if (favorites.length === 0 && recent.length === 0) {
     logger.warn("[ModelHandler] No model choices found in favorites/recent");
@@ -84,6 +136,24 @@ export async function buildModelSelectionMenu(
 export async function showModelSelectionMenu(ctx: Context): Promise<void> {
   try {
     const currentModel = fetchCurrentModel();
+    if (getAssistantMode() === "agy") {
+      await replyWithInlineMenu(ctx, {
+        menuKind: "model",
+        text: t("model.menu.select"),
+        keyboard: await buildAgyModelSelectionMenu(currentModel),
+      });
+      return;
+    }
+
+    if (getAssistantMode() === "cursor") {
+      await replyWithInlineMenu(ctx, {
+        menuKind: "model",
+        text: t("model.menu.select"),
+        keyboard: await buildCursorModelSelectionMenu(currentModel),
+      });
+      return;
+    }
+
     const modelLists = await getModelSelectionLists();
     const keyboard = await buildModelSelectionMenu(currentModel, modelLists);
 

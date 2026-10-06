@@ -15,6 +15,7 @@ const mocked = vi.hoisted(() => ({
   sendDownloadedFileMock: vi.fn(),
   loggerDebugMock: vi.fn(),
   loggerErrorMock: vi.fn(),
+  realpathMock: vi.fn(),
 }));
 
 vi.mock("node:fs", () => ({
@@ -22,6 +23,10 @@ vi.mock("node:fs", () => ({
     readdir: mocked.readdirMock,
     stat: mocked.statMock,
   },
+}));
+
+vi.mock("node:fs/promises", () => ({
+  realpath: mocked.realpathMock,
 }));
 
 vi.mock("../../../src/app/services/run-control-service.js", () => ({
@@ -108,6 +113,7 @@ describe("bot/commands/ls", () => {
       size: 1234,
       mtime: new Date("2024-01-02T00:00:00.000Z"),
     });
+    mocked.realpathMock.mockReset().mockImplementation(async (filePath: string) => filePath);
     mocked.isForegroundBusyMock.mockReset().mockReturnValue(false);
     mocked.replyBusyBlockedMock.mockReset().mockResolvedValue(undefined);
     mocked.getCurrentProjectMock.mockReset().mockReturnValue({
@@ -227,7 +233,9 @@ describe("bot/commands/ls", () => {
     await lsCommand(ctx as never);
 
     const keyboard = (ctx.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.reply_markup;
-    const labels = keyboard.inline_keyboard.slice(0, 4).map((row: Array<{ text: string }>) => row[0]?.text);
+    const labels = keyboard.inline_keyboard
+      .slice(0, 4)
+      .map((row: Array<{ text: string }>) => row[0]?.text);
 
     expect(labels).toEqual(["📁 b-dir", "📁 z-last-dir", "📄 a-file.txt", "📄 c-file.txt"]);
   });
@@ -236,7 +244,8 @@ describe("bot/commands/ls", () => {
     const commandCtx = createCommandContext();
     await lsCommand(commandCtx as never);
 
-    const keyboard = (commandCtx.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.reply_markup;
+    const keyboard = (commandCtx.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]
+      ?.reply_markup;
     const callbackData = keyboard.inline_keyboard[0][0].callback_data as string;
 
     mocked.readdirMock.mockResolvedValue([{ name: "nested.txt", isDirectory: () => false }]);
@@ -245,7 +254,9 @@ describe("bot/commands/ls", () => {
     const handled = await handleLsCallback(callbackCtx);
 
     expect(handled).toBe(true);
-    expect(mocked.readdirMock).toHaveBeenLastCalledWith("/repo/project/docs", { withFileTypes: true });
+    expect(mocked.readdirMock).toHaveBeenLastCalledWith("/repo/project/docs", {
+      withFileTypes: true,
+    });
     expect(callbackCtx.editMessageText).toHaveBeenCalled();
   });
 
@@ -253,7 +264,8 @@ describe("bot/commands/ls", () => {
     const commandCtx = createCommandContext();
     await lsCommand(commandCtx as never);
 
-    const keyboard = (commandCtx.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.reply_markup;
+    const keyboard = (commandCtx.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]
+      ?.reply_markup;
     const callbackData = keyboard.inline_keyboard[1][0].callback_data as string;
 
     const callbackCtx = createCallbackContext(callbackData);
@@ -276,10 +288,16 @@ describe("bot/commands/ls", () => {
     const handled = await handleLsCallback(callbackCtx);
 
     expect(handled).toBe(true);
-    expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({ text: t("commands.download.downloading") });
-    expect(mocked.sendDownloadedFileMock).toHaveBeenCalledWith(callbackCtx, "/repo/project/README.md", {
-      announce: false,
+    expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
+      text: t("commands.download.downloading"),
     });
+    expect(mocked.sendDownloadedFileMock).toHaveBeenCalledWith(
+      callbackCtx,
+      "/repo/project/README.md",
+      {
+        announce: false,
+      },
+    );
     expect(mocked.clearActiveInlineMenuMock).toHaveBeenCalledWith("ls_downloaded");
     expect(callbackCtx.deleteMessage).toHaveBeenCalled();
   });
@@ -309,7 +327,9 @@ describe("bot/commands/ls", () => {
     const keyboard = (ctx.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.reply_markup;
     const flatButtons = keyboard.inline_keyboard.flat();
 
-    expect(flatButtons.some((button: { text?: string }) => button.text === t("open.next_page"))).toBe(true);
+    expect(
+      flatButtons.some((button: { text?: string }) => button.text === t("open.next_page")),
+    ).toBe(true);
   });
 
   it("loads the next page when tapping the next button", async () => {
@@ -323,9 +343,12 @@ describe("bot/commands/ls", () => {
     const commandCtx = createCommandContext();
     await lsCommand(commandCtx as never);
 
-    const keyboard = (commandCtx.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.reply_markup;
+    const keyboard = (commandCtx.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]
+      ?.reply_markup;
     const flatButtons = keyboard.inline_keyboard.flat();
-    const nextButton = flatButtons.find((button: { text?: string }) => button.text === t("open.next_page"));
+    const nextButton = flatButtons.find(
+      (button: { text?: string }) => button.text === t("open.next_page"),
+    );
 
     expect(nextButton?.callback_data).toBeDefined();
 
@@ -427,7 +450,9 @@ describe("bot/commands/ls", () => {
     const keyboard = (ctx.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.reply_markup;
     const flatButtons = keyboard.inline_keyboard.flat();
 
-    expect(flatButtons.some((button: { text?: string }) => button.text === t("open.back"))).toBe(false);
+    expect(flatButtons.some((button: { text?: string }) => button.text === t("open.back"))).toBe(
+      false,
+    );
   });
 
   it("reuses a cached directory only when it is inside the current project", async () => {
@@ -443,7 +468,9 @@ describe("bot/commands/ls", () => {
     const secondCtx = createCommandContext();
     await lsCommand(secondCtx as never);
 
-    expect(mocked.readdirMock).toHaveBeenLastCalledWith("/repo/project/docs", { withFileTypes: true });
+    expect(mocked.readdirMock).toHaveBeenLastCalledWith("/repo/project/docs", {
+      withFileTypes: true,
+    });
   });
 
   it("falls back to the project root when cached directory is outside the current project", async () => {

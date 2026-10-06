@@ -216,6 +216,7 @@ Configuration can be provided through process environment variables or an `.env`
 | `OPENCODE_API_URL`                         | OpenCode server URL                                                                                                   |    No    | `http://localhost:4096`  |
 | `OPENCODE_AUTO_RESTART_ENABLED`            | Automatically restart a local OpenCode server when health-checks fail                                                 |    No    | `false`                  |
 | `OPENCODE_MONITOR_INTERVAL_SEC`            | Health monitor interval in seconds when OpenCode auto-restart is enabled                                              |    No    | `300`                    |
+| `OPENCODE_SERVER_VERSION`                  | Server protocol: `v1` (default); set `v2` explicitly for a V2 server | No | `v1` |
 | `OPENCODE_SERVER_USERNAME`                 | Server auth username                                                                                                  |    No    | `opencode`               |
 | `OPENCODE_SERVER_PASSWORD`                 | Server auth password                                                                                                  |    No    | —                        |
 | `OPENCODE_MODEL_PROVIDER`                  | Default model provider                                                                                                |   Yes    | `opencode`               |
@@ -230,12 +231,15 @@ Configuration can be provided through process environment variables or an `.env`
 | `SCHEDULED_TASK_EXECUTION_TIMEOUT_MINUTES` | Maximum time the bot waits for one scheduled task run before marking it failed                                        |    No    | `120`                    |
 | `SCHEDULED_TASK_DISABLE_NOTIFICATION`      | Send scheduled task result/error messages without Telegram push notifications                                         |    No    | `false`                  |
 | `BASH_TOOL_DISPLAY_MAX_LENGTH`             | Maximum displayed length for `bash` tool commands in Telegram summaries; longer commands are truncated                |    No    | `128`                    |
+| `CURSOR_AGENT_PATH`                        | Path to the authenticated Cursor Agent CLI                                                                            |    No    | `cursor-agent` on `PATH` |
+| `CURSOR_AGENT_TIMEOUT_MS`                  | Hard limit for one Cursor Agent run; progress heartbeats continue while it works                                      |    No    | `3600000`                |
 | `TRACK_BACKGROUND_SESSIONS`                | Track detached/non-current sessions in the current selected project/worktree and send short notifications             |    No    | `true`                   |
 | `RESPONSE_STREAM_THROTTLE_MS`              | Stream update throttle in milliseconds for assistant, thinking, and tool message edits                                |    No    | `1000`                   |
 | `MESSAGE_FORMAT_MODE`                      | Assistant reply formatting mode: `markdown` (Telegram MarkdownV2) or `raw`                                            |    No    | `markdown`               |
 | `MESSAGE_MERGE_WINDOW_MS`                  | Merge Telegram-split long text messages into one prompt after this wait window (ms); `0` disables merging             |    No    | `1500`                   |
 | `INITIAL_SETTINGS_PRESET`                  | JSON object that seeds default `/settings` values on first run (keys not yet persisted); see [Runtime Settings](#runtime-settings) |    No    | `{}`                     |
 | `CODE_FILE_MAX_SIZE_KB`                    | Max file size (KB) to send as document                                                                                |    No    | `100`                    |
+| `STT_COMMAND`                              | Local transcription executable; receives an audio path and writes text to stdout (takes precedence over API)         |    No    | —                        |
 | `STT_API_URL`                              | Whisper-compatible API base URL (enables voice/audio transcription)                                                   |    No    | —                        |
 | `STT_API_KEY`                              | API key for your STT provider                                                                                         |    No    | —                        |
 | `STT_MODEL`                                | STT model name passed to `/audio/transcriptions`                                                                      |    No    | `whisper-large-v3-turbo` |
@@ -324,14 +328,20 @@ This affects direct Bot API calls and Telegram file downloads. It is not a repla
 
 ### Voice and Audio Transcription (Optional)
 
-If `STT_API_URL` and `STT_API_KEY` are set, the bot will:
+If `STT_COMMAND` or both `STT_API_URL` and `STT_API_KEY` are set, the bot will:
 
 1. Accept `voice` and `audio` Telegram messages
-2. Transcribe them via `POST {STT_API_URL}/audio/transcriptions`
+2. Transcribe them with the local command or via `POST {STT_API_URL}/audio/transcriptions`
 3. Show recognized text in chat
 4. Send the recognized text to OpenCode as a normal prompt
 
 If `STT_NOTE_PROMPT` is set to a non-empty value other than `false` or `0`, the bot prepends `[Note: ...]` to the transcription before sending it to the LLM. The recognized text shown in Telegram stays unchanged.
+
+For a local command, set an absolute executable path. The command receives one temporary audio file path, must write only the transcription to stdout, and may write diagnostics to stderr:
+
+```env
+STT_COMMAND=/absolute/path/to/transcribe-audio
+```
 
 If TTS credentials are configured, you can choose spoken reply behavior in `/settings`: `off` disables audio replies, `all` sends audio for every assistant reply, and `auto` sends audio only after voice/audio prompts. The preference is stored in `settings.json` and persists across restarts.
 
@@ -392,6 +402,10 @@ The API contract is:
 If the extractor is not configured and the model doesn't support documents, the bot replies with a notice and forwards only the caption text.
 
 ### Model Configuration
+
+For isolated Google account selection in direct AGY mode, see
+[Chrome identities and AGY sign-in](docs/agy-accounts.md). Chrome sessions are
+never copied into CLI profiles; pending sign-ins remain explicit.
 
 The model picker uses OpenCode local model state (`favorite` + `recent`):
 

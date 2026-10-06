@@ -136,7 +136,7 @@ class KeyboardManager {
    * Send keyboard update to user
    * Implements debouncing to avoid rate limits
    */
-  public async sendKeyboardUpdate(chatId?: number): Promise<void> {
+  public async sendKeyboardUpdate(chatId?: number, force = false): Promise<void> {
     if (!this.api) {
       logger.warn("[KeyboardManager] API not initialized");
       return;
@@ -150,7 +150,7 @@ class KeyboardManager {
 
     // Debounce: don't update more frequently than UPDATE_DEBOUNCE_MS
     const now = Date.now();
-    if (now - this.lastUpdateTime < this.UPDATE_DEBOUNCE_MS) {
+    if (!force && now - this.lastUpdateTime < this.UPDATE_DEBOUNCE_MS) {
       logger.debug("[KeyboardManager] Update debounced");
       return;
     }

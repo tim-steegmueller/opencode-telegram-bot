@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InlineKeyboard } from "grammy";
 
 const mocked = vi.hoisted(() => ({
+  listAgyModelsMock: vi.fn(),
   getModelSelectionListsMock: vi.fn(),
   searchModelsMock: vi.fn(),
   interactionManagerGetSnapshotMock: vi.fn(),
@@ -20,6 +21,11 @@ const mocked = vi.hoisted(() => ({
   pinnedGetContextLimitMock: vi.fn(),
   createMainKeyboardMock: vi.fn(),
   replyWithInlineMenuMock: vi.fn(),
+}));
+
+vi.mock("../../../src/app/services/agy-model-service.js", () => ({
+  listAgyModels: mocked.listAgyModelsMock,
+  searchAgyModels: vi.fn(),
 }));
 
 vi.mock("../../../src/app/services/model-selection-service.js", () => ({
@@ -71,6 +77,7 @@ vi.mock("../../../src/bot/menus/inline-menu.js", () => ({
 }));
 
 import {
+  buildAgyModelSelectionMenu,
   buildModelSelectionMenu,
   showModelSelectionMenu,
 } from "../../../src/bot/menus/model-selection-menu.js";
@@ -96,6 +103,23 @@ function mockContext(overrides: Record<string, unknown> = {}) {
 
 describe("bot model selection", () => {
   beforeEach(() => {
+    mocked.listAgyModelsMock.mockResolvedValue([
+      {
+        providerID: "antigravity",
+        modelID: "gemini-3.8-flash-high",
+        displayName: "Gemini 3.8 Flash (High)",
+      },
+      {
+        providerID: "antigravity",
+        modelID: "gemini-3.8-flash-medium",
+        displayName: "Gemini 3.8 Flash (Medium)",
+      },
+      {
+        providerID: "antigravity",
+        modelID: "gemini-3.8-flash-low",
+        displayName: "Gemini 3.8 Flash (Low)",
+      },
+    ]);
     mocked.getModelSelectionListsMock.mockReset();
     mocked.searchModelsMock.mockReset();
     mocked.interactionManagerGetSnapshotMock.mockReset();
@@ -118,6 +142,24 @@ describe("bot model selection", () => {
   });
 
   describe("buildModelSelectionMenu", () => {
+    it("builds an AGY model list from the live catalog", async () => {
+      const keyboard = await buildAgyModelSelectionMenu({
+        providerID: "antigravity",
+        modelID: "gemini-3.8-flash-high",
+      });
+
+      expect(keyboard.inline_keyboard).toHaveLength(4);
+      expect(keyboard.inline_keyboard.slice(1, 4).map((row) => row[0].callback_data)).toEqual([
+        "model:antigravity:gemini-3.8-flash-high",
+        "model:antigravity:gemini-3.8-flash-medium",
+        "model:antigravity:gemini-3.8-flash-low",
+      ]);
+      expect(keyboard.inline_keyboard[1][0]).toMatchObject({
+        text: "✅ gemini-3.8-flash-high",
+        callback_data: "model:antigravity:gemini-3.8-flash-high",
+      });
+    });
+
     it("includes search button as the first row", async () => {
       mocked.getModelSelectionListsMock.mockResolvedValue({
         favorites: [{ providerID: "openai", modelID: "gpt-4o" }],
@@ -155,7 +197,10 @@ describe("bot model selection", () => {
       });
 
       const keyboard = await buildModelSelectionMenu();
-      const callbackData = keyboard.inline_keyboard[1][0].callback_data;
+      const callbackData = keyboard.inline_keyboard
+        .flat()
+        .find((button) => button.callback_data === "model:list:recent:0")?.callback_data;
+      expect(keyboard.inline_keyboard[1][0].callback_data).toBe("model:catalog");
 
       expect(callbackData).toBe("model:list:recent:0");
       expect(Buffer.byteLength(callbackData ?? "", "utf-8")).toBeLessThanOrEqual(64);
@@ -219,6 +264,23 @@ describe("bot model selection", () => {
       });
       expect(mocked.getModelSelectionListsMock).not.toHaveBeenCalled();
     });
+
+    it.each(["antigravity", "cursor"])(
+      "rejects an external %s model callback after switching to OpenCode",
+      async (provider) => {
+        const ctx = mockContext({
+          callbackQuery: {
+            data: `model:${provider}:selected-external-model`,
+            message: { message_id: 999 },
+          },
+          api: {},
+        });
+        expect(await handleModelSelect(ctx)).toBe(true);
+        expect(mocked.selectModelMock).not.toHaveBeenCalled();
+        expect(mocked.keyboardUpdateModelMock).not.toHaveBeenCalled();
+        expect(ctx.answerCallbackQuery).toHaveBeenCalledWith({ text: "Failed to change model" });
+      },
+    );
 
     it("rejects stale search result callbacks instead of parsing them as legacy models", async () => {
       const ctx = mockContext({

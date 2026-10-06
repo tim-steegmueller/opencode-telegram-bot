@@ -1,9 +1,10 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setRuntimeMode } from "../../../src/runtime/mode.js";
 import {
+  __flushSettingsWritesForTests,
   __resetSettingsForTests,
   getCompactOutputMode,
   getResponseStreamingMode,
@@ -17,6 +18,8 @@ import {
   setSendDiffFileAttachments,
   setShowAssistantRunFooter,
   setShowThinkingContent,
+  getAssistantMode,
+  setAssistantMode,
 } from "../../../src/app/stores/settings-store.js";
 
 describe("app/stores/settings-store", () => {
@@ -31,6 +34,7 @@ describe("app/stores/settings-store", () => {
   });
 
   afterEach(async () => {
+    await __flushSettingsWritesForTests();
     delete process.env.OPENCODE_TELEGRAM_HOME;
     __resetSettingsForTests();
     await rm(tempHome, { recursive: true, force: true });
@@ -60,7 +64,10 @@ describe("app/stores/settings-store", () => {
   });
 
   it("loads compact output mode from settings.json", async () => {
-    await writeFile(path.join(tempHome, "settings.json"), JSON.stringify({ compactOutputMode: true }));
+    await writeFile(
+      path.join(tempHome, "settings.json"),
+      JSON.stringify({ compactOutputMode: true }),
+    );
 
     await loadSettings();
 
@@ -122,10 +129,12 @@ describe("app/stores/settings-store", () => {
     vi.resetModules();
     vi.stubEnv("INITIAL_SETTINGS_PRESET", '{"unknownKey":true,"compactOutputMode":true}');
 
-    await expect((async () => {
-      const store = await import("../../../src/app/stores/settings-store.js");
-      await store.loadSettings();
-    })()).rejects.toThrow(/unknown key "unknownKey"/);
+    await expect(
+      (async () => {
+        const store = await import("../../../src/app/stores/settings-store.js");
+        await store.loadSettings();
+      })(),
+    ).rejects.toThrow(/unknown key "unknownKey"/);
 
     vi.unstubAllEnvs();
     vi.resetModules();
@@ -135,17 +144,22 @@ describe("app/stores/settings-store", () => {
     vi.resetModules();
     vi.stubEnv("INITIAL_SETTINGS_PRESET", '{"compactOutputMode":"yes"}');
 
-    await expect((async () => {
-      const store = await import("../../../src/app/stores/settings-store.js");
-      await store.loadSettings();
-    })()).rejects.toThrow(/"compactOutputMode" must be a boolean/);
+    await expect(
+      (async () => {
+        const store = await import("../../../src/app/stores/settings-store.js");
+        await store.loadSettings();
+      })(),
+    ).rejects.toThrow(/"compactOutputMode" must be a boolean/);
 
     vi.unstubAllEnvs();
     vi.resetModules();
   });
 
   it("loads thinking content setting from settings.json", async () => {
-    await writeFile(path.join(tempHome, "settings.json"), JSON.stringify({ showThinkingContent: false }));
+    await writeFile(
+      path.join(tempHome, "settings.json"),
+      JSON.stringify({ showThinkingContent: false }),
+    );
 
     await loadSettings();
 
@@ -165,7 +179,10 @@ describe("app/stores/settings-store", () => {
   });
 
   it("loads response streaming mode from settings.json", async () => {
-    await writeFile(path.join(tempHome, "settings.json"), JSON.stringify({ responseStreamingMode: "draft" }));
+    await writeFile(
+      path.join(tempHome, "settings.json"),
+      JSON.stringify({ responseStreamingMode: "draft" }),
+    );
 
     await loadSettings();
 
@@ -260,5 +277,31 @@ describe("app/stores/settings-store", () => {
       const settings = JSON.parse(await readFile(path.join(tempHome, "settings.json"), "utf-8"));
       expect(settings.responseStreamingMode).toBe("draft");
     });
+  });
+
+  it("defaults assistant mode to opencode and stores explicit mode", () => {
+    expect(getAssistantMode()).toBe("opencode");
+
+    setAssistantMode("agy");
+
+    expect(getAssistantMode()).toBe("agy");
+  });
+
+  it("keeps a queued write in the home selected when it was enqueued", async () => {
+    const otherHome = await mkdtemp(path.join(os.tmpdir(), "opencode-telegram-other-home-"));
+
+    setAssistantMode("agy");
+    process.env.OPENCODE_TELEGRAM_HOME = otherHome;
+    await __flushSettingsWritesForTests();
+
+    const persisted = JSON.parse(await readFile(path.join(tempHome, "settings.json"), "utf-8")) as {
+      assistantMode?: string;
+    };
+    expect(persisted.assistantMode).toBe("agy");
+    await expect(access(path.join(otherHome, "settings.json"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    await rm(otherHome, { recursive: true, force: true });
   });
 });

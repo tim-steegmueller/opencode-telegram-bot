@@ -9,6 +9,10 @@ import { assistantRunState } from "../../app/managers/assistant-run-state-manage
 import { markAttachedSessionIdle } from "../../app/services/attach-service.js";
 import { clearPromptResponseMode } from "../handlers/prompt.js";
 import { markUserAbortRequested } from "../../app/managers/abort-suppression-manager.js";
+import { isAgyAgentRunActive } from "../../app/services/agy-agent-service.js";
+import { isCursorAgentRunActive } from "../../app/services/cursor-agent-service.js";
+import { abortActiveAgentRun } from "../../app/services/agent-run-service.js";
+import { abortActiveAgyJob } from "../../app/services/agy-job-service.js";
 
 type SessionState = "idle" | "busy" | "not-found";
 
@@ -71,11 +75,35 @@ async function pollSessionStatus(
 export async function abortCurrentOperation(
   ctx: Context,
   options: AbortCurrentOperationOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   const notifyUser = options.notifyUser ?? true;
 
   try {
     abortLocalStreaming();
+
+    // Engine changes affect future jobs, not the running job that /abort must stop.
+    const externalAgentActive = isAgyAgentRunActive() || isCursorAgentRunActive();
+    if (externalAgentActive) {
+      const stop = (abortActiveAgentRun() ?? abortActiveAgyJob()).catch((error) => {
+        logger.error("[Abort] External agent stop failed:", error);
+        return false;
+      });
+      if (!notifyUser) return await stop;
+
+      const waitingMessage = await ctx.reply(t("stop.in_progress"));
+      const chatId = ctx.chat?.id;
+      const stopped = await stop;
+      if (!chatId) {
+        logger.warn("[Abort] Chat context is missing while aborting external agent");
+        return stopped;
+      }
+      await ctx.api.editMessageText(
+        chatId,
+        waitingMessage.message_id,
+        stopped ? t("stop.success") : t("stop.warn_unconfirmed"),
+      );
+      return stopped;
+    }
 
     const currentSession = getCurrentSession();
 
@@ -83,7 +111,7 @@ export async function abortCurrentOperation(
       if (notifyUser) {
         await ctx.reply(t("stop.no_active_session"));
       }
-      return;
+      return true;
     }
 
     let waitingMessageId: number | null = null;
@@ -96,7 +124,7 @@ export async function abortCurrentOperation(
 
       if (!chatId) {
         logger.warn("[Abort] Chat context is missing while aborting active session");
-        return;
+        return false;
       }
     }
 
@@ -121,7 +149,7 @@ export async function abortCurrentOperation(
         if (notifyUser && chatId !== null && waitingMessageId !== null) {
           await ctx.api.editMessageText(chatId, waitingMessageId, t("stop.warn_unconfirmed"));
         }
-        return;
+        return false;
       }
 
       if (abortResult !== true) {
@@ -129,7 +157,7 @@ export async function abortCurrentOperation(
         if (notifyUser && chatId !== null && waitingMessageId !== null) {
           await ctx.api.editMessageText(chatId, waitingMessageId, t("stop.warn_maybe_finished"));
         }
-        return;
+        return false;
       }
 
       const finalStatus = await pollSessionStatus(
@@ -143,10 +171,12 @@ export async function abortCurrentOperation(
         if (notifyUser && chatId !== null && waitingMessageId !== null) {
           await ctx.api.editMessageText(chatId, waitingMessageId, t("stop.success"));
         }
+        return true;
       } else {
         if (notifyUser && chatId !== null && waitingMessageId !== null) {
           await ctx.api.editMessageText(chatId, waitingMessageId, t("stop.warn_still_busy"));
         }
+        return false;
       }
     } catch (error) {
       clearTimeout(timeoutId);
@@ -162,10 +192,12 @@ export async function abortCurrentOperation(
           await ctx.api.editMessageText(chatId, waitingMessageId, t("stop.warn_local_only"));
         }
       }
+      return false;
     }
   } catch (error) {
     logger.error("[Abort] Unexpected error:", error);
-    await ctx.reply(t("stop.error"));
+    if (notifyUser) await ctx.reply(t("stop.error"));
+    return false;
   }
 }
 

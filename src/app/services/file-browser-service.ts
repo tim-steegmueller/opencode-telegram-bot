@@ -283,7 +283,9 @@ function isSamePath(leftPath: string, rightPath: string): boolean {
 export function isPathWithinDirectory(targetPath: string, directoryPath: string): boolean {
   const pathApi = getPathApi(directoryPath);
   const relativePath = pathApi.relative(directoryPath, targetPath);
-  return relativePath === "" || (!relativePath.startsWith("..") && !pathApi.isAbsolute(relativePath));
+  return (
+    relativePath === "" || (!relativePath.startsWith("..") && !pathApi.isAbsolute(relativePath))
+  );
 }
 
 export function getProjectRoot(): string | null {
@@ -293,6 +295,23 @@ export function getProjectRoot(): string | null {
 export function isWithinProjectRoot(targetPath: string): boolean {
   const projectRoot = getProjectRoot();
   return projectRoot !== null && isPathWithinDirectory(targetPath, projectRoot);
+}
+
+export async function isWithinProjectRootSafe(targetPath: string): Promise<boolean> {
+  const projectRoot = getProjectRoot();
+  if (!projectRoot) {
+    return false;
+  }
+
+  try {
+    const [resolvedTarget, resolvedProjectRoot] = await Promise.all([
+      realpath(targetPath),
+      realpath(projectRoot),
+    ]);
+    return isPathWithinDirectory(resolvedTarget, resolvedProjectRoot);
+  } catch {
+    return false;
+  }
 }
 
 export function isProjectRoot(targetPath: string): boolean {
@@ -311,11 +330,13 @@ export async function scanLsDirectory(
 
     const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
     const entries: LsEntry[] = dirEntries
-      .map((entry): LsEntry => ({
-        name: entry.name,
-        fullPath: joinPath(dirPath, entry.name),
-        type: entry.isDirectory() ? "directory" : "file",
-      }))
+      .map(
+        (entry): LsEntry => ({
+          name: entry.name,
+          fullPath: joinPath(dirPath, entry.name),
+          type: entry.isDirectory() ? "directory" : "file",
+        }),
+      )
       .sort((left, right) => {
         if (left.type !== right.type) {
           return left.type === "directory" ? -1 : 1;
@@ -345,7 +366,7 @@ export async function scanLsDirectory(
 
 export async function getFileDetails(filePath: string): Promise<FileDetails | { error: string }> {
   try {
-    if (!isWithinProjectRoot(filePath)) {
+    if (!(await isWithinProjectRootSafe(filePath))) {
       return { error: t("ls.access_denied") };
     }
 

@@ -2,8 +2,16 @@ import type { Context, NextFunction } from "grammy";
 import type { FilePartInput, Model } from "@opencode-ai/sdk/v2";
 import { config } from "../../config.js";
 import { t } from "../../i18n/index.js";
-import { getModelCapabilities, supportsInput } from "../../app/services/model-capabilities-service.js";
+import {
+  getModelCapabilities,
+  supportsInput,
+} from "../../app/services/model-capabilities-service.js";
 import { getStoredModel } from "../../app/services/model-selection-service.js";
+import { getAssistantMode, type AssistantMode } from "../../app/stores/settings-store.js";
+import {
+  PENDING_ATTACHMENT_TTL_MINUTES,
+  storePendingAttachments,
+} from "../../app/services/pending-attachment-service.js";
 import { logger } from "../../utils/logger.js";
 import {
   downloadTelegramFile,
@@ -76,6 +84,7 @@ export interface MediaGroupHandlerDeps extends ProcessPromptDeps {
     modelId: string,
   ) => Promise<Model["capabilities"] | null>;
   getStoredModel?: () => { providerID: string; modelID: string };
+  getAssistantMode?: () => AssistantMode;
   processPrompt?: (
     ctx: Context,
     text: string,
@@ -214,6 +223,18 @@ export class MediaGroupAttachmentHandler {
 
       const { promptText, fileParts } = await this.preparePrompt(validationResult.items, items);
       const processPrompt = this.deps.processPrompt ?? processUserPrompt;
+      const assistantMode = (this.deps.getAssistantMode ?? getAssistantMode)();
+
+      if (assistantMode !== "opencode" && !promptText.trim() && fileParts.length > 0) {
+        storePendingAttachments(replyCtx.chat!.id, fileParts);
+        await replyCtx.reply(
+          t("bot.photo_waiting_for_prompt", { minutes: PENDING_ATTACHMENT_TTL_MINUTES }),
+        );
+        logger.info(
+          `[MediaGroup] Stored captionless media group: key=${key}, files=${fileParts.length}`,
+        );
+        return;
+      }
 
       logger.info(
         `[MediaGroup] Sending media group as one prompt: key=${key}, files=${fileParts.length}, textLength=${promptText.length}`,
@@ -230,6 +251,7 @@ export class MediaGroupAttachmentHandler {
     items: PendingMediaGroupItem[],
   ): Promise<ValidatedMediaGroup | MediaGroupValidationError> {
     const storedModel = (this.deps.getStoredModel ?? getStoredModel)();
+    const assistantMode = (this.deps.getAssistantMode ?? getAssistantMode)();
     const validItems: ValidMediaGroupItem[] = [];
     let needsImageSupport = false;
     let needsPdfSupport = false;
@@ -300,7 +322,7 @@ export class MediaGroupAttachmentHandler {
       return { reason: `unsupported_document_mime:${mimeType || "unknown"}` };
     }
 
-    if (needsImageSupport || needsPdfSupport) {
+    if (assistantMode === "opencode" && (needsImageSupport || needsPdfSupport)) {
       const getCapabilities = this.deps.getModelCapabilities ?? getModelCapabilities;
       const capabilities = await getCapabilities(storedModel.providerID, storedModel.modelID);
 
