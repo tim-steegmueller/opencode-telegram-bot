@@ -35,7 +35,7 @@ import { stopEventListening } from "../../opencode/events.js";
 import { interactionManager } from "../../app/managers/interaction-manager.js";
 import { clearAllInteractionState } from "../../app/managers/interaction-manager.js";
 import { safeBackgroundTask } from "../../utils/safe-background-task.js";
-import { formatErrorDetails } from "../../utils/error-format.js";
+import { getErrorLogMetadata } from "../../utils/error-log-metadata.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../i18n/index.js";
 import { foregroundSessionState } from "../../app/managers/foreground-session-state-manager.js";
@@ -704,13 +704,11 @@ async function processPreparedPrompt(
           void markAttachedSessionIdle(currentSession.id);
           assistantRunState.clearRun(currentSession.id, "session_prompt_api_error");
           clearPromptResponseMode(currentSession.id);
-          const details = formatErrorDetails(error, 6000);
           logger.error(
             "[Bot] OpenCode API returned an error for session.promptAsync",
             promptErrorLogContext,
+            getErrorLogMetadata(error),
           );
-          logger.error("[Bot] session.promptAsync error details:", details);
-          logger.error("[Bot] session.promptAsync raw API error object:", error);
 
           // Send user-friendly error via API directly because ctx is no longer available
           void bot.api.sendMessage(ctx.chat!.id, t("bot.prompt_send_error")).catch(() => {});
@@ -724,10 +722,11 @@ async function processPreparedPrompt(
         void markAttachedSessionIdle(currentSession.id);
         assistantRunState.clearRun(currentSession.id, "session_prompt_background_error");
         clearPromptResponseMode(currentSession.id);
-        const details = formatErrorDetails(error, 6000);
-        logger.error("[Bot] session.promptAsync background task failed", promptErrorLogContext);
-        logger.error("[Bot] session.promptAsync background failure details:", details);
-        logger.error("[Bot] session.promptAsync raw background error object:", error);
+        logger.error(
+          "[Bot] session.promptAsync background task failed",
+          promptErrorLogContext,
+          getErrorLogMetadata(error),
+        );
         void bot.api.sendMessage(ctx.chat!.id, t("bot.prompt_send_error")).catch(() => {});
       },
     });

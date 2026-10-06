@@ -14,6 +14,56 @@ async function loadLoggerModule() {
 }
 
 describe("utils/logger", () => {
+  it("keeps error payloads out of console and file logs", async () => {
+    const tempHome = await createTempHome();
+    vi.stubEnv("LOG_LEVEL", "debug");
+    vi.stubEnv("OPENCODE_TELEGRAM_HOME", tempHome);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { initializeLogger, logger, getLogFilePath, __flushLoggerForTests, __resetLoggerForTests } =
+      await loadLoggerModule();
+    try {
+      await initializeLogger();
+      const error = Object.assign(new TypeError("synthetic-private-prompt"), {
+        code: "ECONNRESET",
+        request: { headers: { authorization: "synthetic-token" } },
+      });
+      logger.error("[Test] Request failed", error);
+      const { proxy, revoke } = Proxy.revocable({}, {});
+      revoke();
+      expect(() => logger.error("[Test] Unavailable error", proxy)).not.toThrow();
+      await __flushLoggerForTests();
+      expect(consoleError).toHaveBeenCalledWith(expect.any(String), {
+        name: "TypeError",
+        code: "ECONNRESET",
+      });
+      const content = await fs.readFile(getLogFilePath()!, "utf8");
+      expect(content).toContain("TypeError");
+      expect(content).toContain("ECONNRESET");
+      expect(content).not.toContain("synthetic-");
+      expect(consoleError).toHaveBeenCalledWith(expect.any(String), { name: "UnknownError" });
+    } finally {
+      __resetLoggerForTests();
+      await fs.rm(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps logger initialization errors and private paths out of stderr", async () => {
+    const tempHome = await createTempHome();
+    vi.stubEnv("OPENCODE_TELEGRAM_HOME", path.join(tempHome, "synthetic-private-home"));
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    vi.spyOn(fs, "mkdir").mockRejectedValueOnce(Object.assign(new Error("synthetic-token"), { code: "EACCES" }));
+    const { initializeLogger, __resetLoggerForTests } = await loadLoggerModule();
+    try {
+      await initializeLogger();
+      expect(stderr).toHaveBeenCalled();
+      expect(JSON.stringify(stderr.mock.calls)).not.toContain("synthetic-");
+      expect(JSON.stringify(stderr.mock.calls)).toContain("EACCES");
+    } finally {
+      __resetLoggerForTests();
+      await fs.rm(tempHome, { recursive: true, force: true });
+    }
+  });
+
   it("uses info level until LOG_LEVEL is loaded into env", async () => {
     const consoleLogMock = vi.spyOn(console, "log").mockImplementation(() => undefined);
     vi.stubEnv("LOG_LEVEL", "");

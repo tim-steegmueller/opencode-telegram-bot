@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../../../src/i18n/index.js";
 import type { Bot, Context } from "grammy";
+import { logger } from "../../../src/utils/logger.js";
 import {
   consumePromptResponseMode,
   processUserPrompt,
@@ -704,6 +705,36 @@ describe("bot/handlers/prompt", () => {
       100,
       expect.stringContaining("Run quality check: pnpm quality"),
     );
+  });
+
+  it.each(["api", "background"])("logs safe prompt failure metadata for %s errors", async (path) => {
+    const errorLog = vi.spyOn(logger, "error").mockImplementation(() => {});
+    const error = {
+      name: "APIError",
+      data: {
+        statusCode: 429,
+        isRetryable: true,
+        message: "synthetic-private-prompt",
+        responseBody: "synthetic-private-response",
+        responseHeaders: { authorization: "synthetic-token" },
+      },
+    };
+    const ctx = createContext();
+    const deps = createDeps();
+    expect(await processUserPrompt(ctx, "Review README", deps)).toBe(true);
+    const task = getScheduledBackgroundTask();
+
+    if (path === "api") task.onSuccess?.({ error });
+    else task.onError?.(error);
+
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ sessionId: "session-1", promptLength: 13 }),
+      { name: "APIError", statusCode: 429, isRetryable: true },
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain("synthetic-");
+    expect(deps.bot.api.sendMessage).toHaveBeenCalledWith(777, "Failed to send request to OpenCode.");
+    expect(consumePromptResponseMode("session-1")).toBeNull();
   });
 
   it("still notifies the user when promptAsync reports a real start error", async () => {

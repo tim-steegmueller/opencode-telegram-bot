@@ -15,6 +15,7 @@ import {
 import { processUserPrompt, type ProcessPromptDeps } from "./prompt.js";
 import { flushPendingPrompt } from "./message-merger.js";
 import { logger } from "../../utils/logger.js";
+import { getErrorLogMetadata } from "../../utils/error-log-metadata.js";
 import { t } from "../../i18n/index.js";
 import { buildTelegramFileUrl } from "../../app/services/file-download-service.js";
 
@@ -150,7 +151,7 @@ async function downloadTelegramFile(
     logger.debug(`[Voice] Downloaded Telegram file (${buffer.length} bytes)`);
     return { buffer, filename };
   } catch (err) {
-    logger.error("[Voice] Error downloading file from Telegram:", err);
+    logger.error("[Voice] Error downloading file from Telegram:", getErrorLogMetadata(err));
     return null;
   }
 }
@@ -236,7 +237,10 @@ export async function handleVoiceMessage(ctx: Context, deps: VoiceMessageDeps): 
         t("stt.recognized", { text: recognizedText }),
       );
     } catch (editError) {
-      logger.warn("[Voice] Failed to edit status message with recognized text:", editError);
+      logger.warn(
+        "[Voice] Failed to edit status message with recognized text:",
+        getErrorLogMetadata(editError),
+      );
     }
 
     logger.info(`[Voice] Transcribed audio: ${recognizedText.length} chars`);
@@ -256,8 +260,13 @@ export async function handleVoiceMessage(ctx: Context, deps: VoiceMessageDeps): 
       currentTtsMode === "all" || currentTtsMode === "auto" ? "text_and_tts" : "text_only";
     await processPrompt(ctx, textForLLM, deps, [], { responseMode });
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "unknown error";
-    logger.error("[Voice] Error processing voice message:", err);
+    const metadata = getErrorLogMetadata(err);
+    const errorMessage = [
+      metadata.name,
+      metadata.statusCode ? `HTTP ${metadata.statusCode}` : undefined,
+      metadata.code,
+    ].filter(Boolean).join(", ");
+    logger.error("[Voice] Error processing voice message:", metadata);
 
     try {
       await ctx.api.editMessageText(

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { inspect } from "node:util";
+import { getErrorLogMetadata } from "./error-log-metadata.js";
 import { getRuntimeMode, type RuntimeMode } from "../runtime/mode.js";
 import { getRuntimePaths } from "../runtime/paths.js";
 
@@ -58,8 +59,12 @@ function formatPrefix(level: LogLevel): string {
 }
 
 function formatArg(arg: unknown): unknown {
-  if (arg instanceof Error) {
-    return arg.stack ?? `${arg.name}: ${arg.message}`;
+  try {
+    if (arg instanceof Error) {
+      return getErrorLogMetadata(arg);
+    }
+  } catch {
+    return getErrorLogMetadata(arg);
   }
 
   return arg;
@@ -141,11 +146,7 @@ function getLogFilePattern(mode: RuntimeMode): RegExp {
 }
 
 function reportLoggerInternalError(message: string, error?: unknown): void {
-  const details =
-    error instanceof Error
-      ? (error.stack ?? `${error.name}: ${error.message}`)
-      : String(error ?? "");
-  const suffix = details && details !== "undefined" ? ` ${details}` : "";
+  const suffix = error === undefined ? "" : ` ${JSON.stringify(getErrorLogMetadata(error))}`;
   process.stderr.write(`${formatPrefix("error")} ${LOGGER_ERROR_PREFIX} ${message}${suffix}\n`);
 }
 
@@ -195,7 +196,7 @@ async function cleanupOldLogs(logsDirPath: string, mode: RuntimeMode): Promise<v
   try {
     fileNames = await fsPromises.readdir(logsDirPath);
   } catch (error) {
-    reportLoggerInternalError(`Failed to read log directory ${logsDirPath}.`, error);
+    reportLoggerInternalError("Failed to read log directory.", error);
     return;
   }
 
@@ -207,7 +208,7 @@ async function cleanupOldLogs(logsDirPath: string, mode: RuntimeMode): Promise<v
       try {
         await fsPromises.unlink(path.join(logsDirPath, fileName));
       } catch (error) {
-        reportLoggerInternalError(`Failed to delete old log file ${fileName}.`, error);
+        reportLoggerInternalError("Failed to delete old log file.", error);
       }
     }),
   );
@@ -220,7 +221,7 @@ function cleanupOldLogsInBackground(logsDirPath: string, mode: RuntimeMode): voi
 
   cleanupPromise = cleanupOldLogs(logsDirPath, mode)
     .catch((error) => {
-      reportLoggerInternalError(`Failed to clean up old logs in ${logsDirPath}.`, error);
+      reportLoggerInternalError("Failed to clean up old logs.", error);
     })
     .finally(() => {
       cleanupPromise = null;
@@ -246,7 +247,7 @@ function rotateInstalledLogIfNeeded(): void {
     cleanupOldLogsInBackground(runtimePaths.logsDirPath, mode);
   } catch (error) {
     reportLoggerInternalError(
-      `Failed to rotate file logging to ${nextLogFilePath}.`,
+      "Failed to rotate file logging.",
       error,
     );
     closeLogStream();
@@ -287,7 +288,7 @@ async function initializeLoggerInternal(): Promise<void> {
     await cleanupOldLogs(runtimePaths.logsDirPath, mode);
   } catch (error) {
     reportLoggerInternalError(
-      `Failed to initialize file logging in ${runtimePaths.logsDirPath}.`,
+      "Failed to initialize file logging.",
       error,
     );
     closeLogStream();

@@ -1,4 +1,5 @@
 import { logger } from "./logger.js";
+import { getErrorLogMetadata } from "./error-log-metadata.js";
 
 type BackgroundHook<T> = (value: T) => void | Promise<void>;
 
@@ -21,10 +22,16 @@ function runHookSafely<T>(
 
   try {
     void Promise.resolve(hook(value)).catch((hookError) => {
-      logger.error(`[safeBackgroundTask] ${taskName}: ${hookName} failed:`, hookError);
+      logger.error(
+        `[safeBackgroundTask] ${taskName}: ${hookName} failed:`,
+        getErrorLogMetadata(hookError),
+      );
     });
   } catch (hookError) {
-    logger.error(`[safeBackgroundTask] ${taskName}: ${hookName} failed:`, hookError);
+    logger.error(
+      `[safeBackgroundTask] ${taskName}: ${hookName} failed:`,
+      getErrorLogMetadata(hookError),
+    );
   }
 }
 
@@ -35,7 +42,7 @@ export function safeBackgroundTask<T>({
   onError,
 }: SafeBackgroundTaskOptions<T>): void {
   const handleError = (error: unknown): void => {
-    logger.error(`[safeBackgroundTask] ${taskName} failed:`, error);
+    logger.error(`[safeBackgroundTask] ${taskName} failed:`, getErrorLogMetadata(error));
     runHookSafely(taskName, "onError", onError, error);
   };
 

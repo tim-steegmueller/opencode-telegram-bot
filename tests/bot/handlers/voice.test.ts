@@ -212,6 +212,23 @@ describe("bot/handlers/voice-handler", () => {
     expect(JSON.stringify(vi.mocked(logger.debug).mock.calls)).not.toContain(note);
   });
 
+  it("does not expose transcription error payloads in logs or status", async () => {
+    const { handleVoiceMessage } = await loadVoiceModule();
+    const { logger } = await import("../../../src/utils/logger.js");
+    const { ctx, editMessageTextMock } = createVoiceContext();
+    const error = Object.assign(new Error("synthetic-private-prompt-and-token"), { code: "ECONNRESET" });
+    const { deps, processPromptMock } = createVoiceDeps({ transcribeAudio: vi.fn().mockRejectedValue(error) });
+
+    await handleVoiceMessage(ctx, deps);
+
+    expect(logger.error).toHaveBeenCalledWith("[Voice] Error processing voice message:", {
+      name: "Error", code: "ECONNRESET",
+    });
+    expect(JSON.stringify(editMessageTextMock.mock.calls)).not.toContain("synthetic-");
+    expect(editMessageTextMock).toHaveBeenCalledWith(777, 101, t("stt.error", { error: "Error, ECONNRESET" }));
+    expect(processPromptMock).not.toHaveBeenCalled();
+  });
+
   it("requests an audio reply for voice prompts when TTS mode is auto", async () => {
     mocked.getTtsModeMock.mockReturnValue("auto");
     const { handleVoiceMessage } = await loadVoiceModule();
