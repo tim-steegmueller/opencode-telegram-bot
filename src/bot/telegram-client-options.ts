@@ -26,7 +26,7 @@ export function createTelegramBotOptions(telegram: TelegramClientConfig): Telegr
     botOptions.client = botOptions.client ?? {};
     if (telegram.apiRoot) {
       botOptions.client.apiRoot = telegram.apiRoot;
-      logger.info(`[Bot] Using custom Telegram API root: ${telegram.apiRoot}`);
+      logger.info("[Bot] Using custom Telegram API root");
     }
     if (telegram.proxySecret) {
       // Inject the shared-secret header via a custom fetch wrapper instead of
@@ -53,10 +53,10 @@ export function createTelegramBotOptions(telegram: TelegramClientConfig): Telegr
 
     if (proxyUrl.startsWith("socks")) {
       agent = new SocksProxyAgent(proxyUrl);
-      logger.info(`[Bot] Using SOCKS proxy: ${proxyUrl.replace(/\/\/.*@/, "//***@")}`);
+      logger.info("[Bot] Using SOCKS proxy");
     } else {
       agent = new HttpsProxyAgent(proxyUrl);
-      logger.info(`[Bot] Using HTTP/HTTPS proxy: ${proxyUrl.replace(/\/\/.*@/, "//***@")}`);
+      logger.info("[Bot] Using HTTP/HTTPS proxy");
     }
 
     botOptions.client = botOptions.client ?? {};

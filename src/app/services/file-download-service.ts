@@ -27,7 +27,7 @@ export function buildTelegramFileUrl(filePath: string): string {
 }
 
 export async function downloadTelegramFile(api: Api, fileId: string): Promise<DownloadedFile> {
-  logger.debug(`[FileDownload] Getting file info for fileId=${fileId}`);
+  logger.debug("[FileDownload] Getting Telegram file info");
 
   const file = await api.getFile(fileId);
 
@@ -41,7 +41,7 @@ export async function downloadTelegramFile(api: Api, fileId: string): Promise<Do
   }
 
   const fileUrl = buildTelegramFileUrl(file.file_path);
-  logger.debug(`[FileDownload] Downloading from ${fileUrl.replace(config.telegram.token, "***")}`);
+  logger.debug("[FileDownload] Downloading Telegram file");
 
   const fetchOptions: RequestInit & { agent?: unknown } = {};
 

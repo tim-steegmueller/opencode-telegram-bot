@@ -142,6 +142,8 @@ describe("bot/handlers/voice-handler", () => {
     vi.stubEnv("OPENCODE_MODEL_PROVIDER", "test-provider");
     vi.stubEnv("OPENCODE_MODEL_ID", "test-model");
     vi.stubEnv("TELEGRAM_API_ROOT", "");
+    vi.stubEnv("TELEGRAM_PROXY_URL", "");
+    vi.stubEnv("TELEGRAM_PROXY_SECRET", "");
     vi.stubEnv("STT_NOTE_PROMPT", "");
   });
 
@@ -206,9 +208,8 @@ describe("bot/handlers/voice-handler", () => {
     expect(processPromptMock).toHaveBeenCalledWith(ctx, `[Note: ${note}]\nrun tests`, deps, [], {
       responseMode: "text_only",
     });
-    expect(logger.debug).toHaveBeenCalledWith(
-      `[Voice] Added STT note to LLM prompt: [Note: ${note}]`,
-    );
+    expect(logger.debug).toHaveBeenCalledWith("[Voice] Added STT note to LLM prompt");
+    expect(JSON.stringify(vi.mocked(logger.debug).mock.calls)).not.toContain(note);
   });
 
   it("requests an audio reply for voice prompts when TTS mode is auto", async () => {
@@ -291,6 +292,48 @@ describe("bot/handlers/voice-handler", () => {
       "https://api.telegram.org/file/bottest-telegram-token/voice/file_123.oga",
     );
     expect(processPromptMock).toHaveBeenCalledWith(ctx, "hello", deps, [], {
+      responseMode: "text_only",
+    });
+  });
+
+  it.each([
+    "https://synthetic-user:synthetic-password@synthetic-proxy.example.com:8443/synthetic-path?key=synthetic-query#synthetic-fragment",
+    "socks5://synthetic-user:synthetic-password@synthetic-proxy.example.com:1080/synthetic-path?key=synthetic-query#synthetic-fragment",
+  ])("keeps voice download proxy wiring private: %s", async (proxyUrl) => {
+    vi.stubEnv("TELEGRAM_PROXY_URL", proxyUrl);
+    const httpsGetMock = mockHttpsDownload();
+    const { handleVoiceMessage } = await loadVoiceModule();
+    const { logger } = await import("../../../src/utils/logger.js");
+    const { ctx } = createVoiceContext();
+    const getFileMock = vi.fn().mockResolvedValue({ file_path: "voice/synthetic-recording.oga" });
+    (ctx.api as unknown as { getFile: typeof getFileMock }).getFile = getFileMock;
+    const { deps, processPromptMock } = createVoiceDeps({ downloadTelegramFile: undefined });
+
+    await handleVoiceMessage(ctx, deps);
+
+    expect(logger.info).toHaveBeenCalled();
+    expect(JSON.stringify(vi.mocked(logger.info).mock.calls)).not.toContain("synthetic-");
+    expect(JSON.stringify(vi.mocked(logger.debug).mock.calls)).not.toContain("synthetic-");
+    const options = httpsGetMock.mock.calls[0][1] as {
+      agent: { proxy: unknown };
+      headers?: Record<string, string>;
+    };
+    expect(options.headers).toBeUndefined();
+    if (proxyUrl.startsWith("socks")) {
+      expect(options.agent.proxy).toMatchObject({
+        host: "synthetic-proxy.example.com",
+        port: 1080,
+        userId: "synthetic-user",
+        password: "synthetic-password",
+      });
+    } else {
+      expect(String(options.agent.proxy)).toBe(proxyUrl);
+    }
+    expect(deps.transcribeAudio).toHaveBeenCalledWith(
+      Buffer.from("audio"),
+      "synthetic-recording.ogg",
+    );
+    expect(processPromptMock).toHaveBeenCalledWith(ctx, "run tests", deps, [], {
       responseMode: "text_only",
     });
   });

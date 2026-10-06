@@ -1,6 +1,7 @@
 import { Agent as HttpsAgent } from "https";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createTelegramBotOptions } from "../../src/bot/telegram-client-options.js";
+import { logger } from "../../src/utils/logger.js";
 
 function makeTelegramConfig(overrides: Partial<Parameters<typeof createTelegramBotOptions>[0]> = {}) {
   return {
@@ -13,6 +14,36 @@ function makeTelegramConfig(overrides: Partial<Parameters<typeof createTelegramB
 }
 
 describe("createTelegramBotOptions", () => {
+  it.each([
+    {
+      apiRoot: "https://synthetic-user:synthetic-password@synthetic-api.example.com",
+      proxyUrl: "",
+    },
+    {
+      apiRoot:
+        "https://synthetic-api.example.com/synthetic-private-path?key=synthetic-query#synthetic-fragment",
+      proxyUrl: "",
+    },
+    {
+      apiRoot: "",
+      proxyUrl:
+        "https://synthetic-user:synthetic-password@synthetic-proxy.example.com:8443/synthetic-private-path?key=synthetic-query#synthetic-fragment",
+    },
+    {
+      apiRoot: "",
+      proxyUrl:
+        "socks5://synthetic-user:synthetic-password@synthetic-proxy.example.com:1080/synthetic-private-path?key=synthetic-query#synthetic-fragment",
+    },
+  ])("does not log private endpoint URL components: $apiRoot $proxyUrl", (endpoint) => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    const options = createTelegramBotOptions(makeTelegramConfig(endpoint));
+
+    expect(info).toHaveBeenCalled();
+    expect(JSON.stringify(info.mock.calls)).not.toContain("synthetic-");
+    if (endpoint.apiRoot) expect(options.client?.apiRoot).toBe(endpoint.apiRoot);
+    else expect(options.client?.baseFetchConfig?.agent).toBeDefined();
+  });
+
   it("does not configure an agent for direct Telegram API requests by default", () => {
     const options = createTelegramBotOptions(makeTelegramConfig());
 

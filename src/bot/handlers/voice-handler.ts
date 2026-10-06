@@ -38,7 +38,7 @@ function getTelegramDownloadAgent(): https.RequestOptions["agent"] | undefined {
     ? new SocksProxyAgent(proxyUrl)
     : new HttpsProxyAgent(proxyUrl);
 
-  logger.info(`[Voice] Using Telegram download proxy: ${proxyUrl.replace(/\/\/.*@/, "//***@")}`);
+  logger.info("[Voice] Using Telegram download proxy");
   return telegramDownloadAgent;
 }
 
@@ -136,7 +136,7 @@ async function downloadTelegramFile(
 
     const fileUrl = buildTelegramFileUrl(file.file_path);
 
-    logger.debug(`[Voice] Downloading file: ${file.file_path} (${file.file_size ?? "?"} bytes)`);
+    logger.debug(`[Voice] Downloading Telegram file (${file.file_size ?? "?"} bytes)`);
 
     const buffer = await downloadTelegramFileByUrl(fileUrl);
 
@@ -147,7 +147,7 @@ async function downloadTelegramFile(
       filename = filename.slice(0, -4) + ".ogg";
     }
 
-    logger.debug(`[Voice] Downloaded file: ${filename} (${buffer.length} bytes)`);
+    logger.debug(`[Voice] Downloaded Telegram file (${buffer.length} bytes)`);
     return { buffer, filename };
   } catch (err) {
     logger.error("[Voice] Error downloading file from Telegram:", err);
@@ -246,7 +246,7 @@ export async function handleVoiceMessage(ctx: Context, deps: VoiceMessageDeps): 
 
     if (notePrompt && notePrompt.toLowerCase() !== "false" && notePrompt !== "0") {
       const llmNote = `[Note: ${notePrompt}]`;
-      logger.debug(`[Voice] Added STT note to LLM prompt: ${llmNote}`);
+      logger.debug("[Voice] Added STT note to LLM prompt");
       textForLLM = `${llmNote}\n${recognizedText}`;
     }
 

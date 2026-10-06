@@ -160,10 +160,10 @@ describe("downloadTelegramFile reverse-proxy wiring", () => {
     nodeFetchMock.mockReset();
   });
 
-  function makeApiStub(): Api {
+  function makeApiStub(filePath: string = "voice/sample.ogg"): Api {
     return {
       getFile: vi.fn().mockResolvedValue({
-        file_path: "voice/sample.ogg",
+        file_path: filePath,
         file_size: 100,
       }),
     } as unknown as Api;
@@ -202,6 +202,27 @@ describe("downloadTelegramFile reverse-proxy wiring", () => {
 
     const [url] = fetchMock.mock.calls[0];
     expect(url).toBe("https://tg-proxy.example.com/file/botbot-token-xyz/voice/sample.ogg");
+  });
+
+  it.each([
+    "https://synthetic-user:synthetic-password@synthetic-api.example.com",
+    "https://synthetic-api.example.com/synthetic-path?key=synthetic-query#synthetic-fragment",
+  ])("does not log private download endpoint components: %s", async (apiRoot) => {
+    vi.stubEnv("TELEGRAM_API_ROOT", apiRoot);
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "synthetic-bot-token");
+    vi.stubEnv("TELEGRAM_PROXY_SECRET", "synthetic-shared-secret");
+    const fetchMock = makeFetchStub();
+    const { downloadTelegramFile } = await loadDownloadModule();
+    const { logger } = await import("../../../src/utils/logger.js");
+    const debug = vi.spyOn(logger, "debug").mockImplementation(() => {});
+
+    await downloadTelegramFile(makeApiStub("voice/synthetic-recording.ogg"), "synthetic-file-id");
+
+    expect(debug).toHaveBeenCalled();
+    expect(JSON.stringify(debug.mock.calls)).not.toContain("synthetic-");
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${apiRoot}/file/botsynthetic-bot-token/voice/synthetic-recording.ogg`);
+    expect(options.headers["X-Proxy-Secret"]).toBe("synthetic-shared-secret");
   });
 
   it("normalizes a trailing slash so the URL has no double slash", async () => {
