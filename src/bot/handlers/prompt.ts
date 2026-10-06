@@ -20,7 +20,12 @@ import {
   runAgyAgentPrompt,
 } from "../../app/services/agy-agent-service.js";
 import { formatVariantForButton } from "../../app/services/variant-selection-service.js";
-import { AgentRunAbortedError } from "../../app/services/agent-run-service.js";
+import {
+  AgentRunAbortedError,
+  beginAgentRun,
+  isAgentRunActive,
+  type AgentRun,
+} from "../../app/services/agent-run-service.js";
 import { formatAgyFailure } from "../../app/services/agy-error-service.js";
 import { createMainKeyboard } from "../keyboards/main-reply-keyboard.js";
 import { keyboardManager } from "../keyboards/keyboard-manager.js";
@@ -158,6 +163,39 @@ export async function processUserPrompt(
   fileParts: FilePartInput[] = [],
   options: ProcessPromptOptions = {},
 ): Promise<boolean> {
+  const mode = getAssistantMode();
+  if (isAppShuttingDown() || !getCurrentProject() || (mode !== "agy" && mode !== "cursor")) {
+    return processPreparedPrompt(ctx, text, deps, fileParts, options);
+  }
+  const busy = mode === "agy" ? isAgyAgentRunActive() : isCursorAgentRunActive();
+  if (busy || isAgentRunActive()) {
+    await ctx.reply(t(mode === "agy" ? "agy.busy" : "cursor.busy"));
+    return false;
+  }
+
+  // The message merger does not await preparation. Own it before account/model lookup
+  // or Telegram I/O so /abort can prevent a later dispatch, not just kill a spawned CLI.
+  const run = beginAgentRun();
+  let dispatched = false;
+  try {
+    dispatched = await processPreparedPrompt(ctx, text, deps, fileParts, options, run);
+    return dispatched;
+  } catch (error) {
+    if (error instanceof AgentRunAbortedError) return false;
+    throw error;
+  } finally {
+    if (!dispatched) run.finish();
+  }
+}
+
+async function processPreparedPrompt(
+  ctx: Context,
+  text: string,
+  deps: ProcessPromptDeps,
+  fileParts: FilePartInput[],
+  options: ProcessPromptOptions,
+  ownedRun?: AgentRun,
+): Promise<boolean> {
   const { bot, ensureEventSubscription } = deps;
   const responseMode =
     options.responseMode ?? (getTtsMode() === "all" ? "text_and_tts" : "text_only");
@@ -179,13 +217,19 @@ export async function processUserPrompt(
   const attachmentParts = [...getPendingAttachments(ctx.chat!.id), ...fileParts];
 
   if (getAssistantMode() === "cursor") {
-    if (isCursorAgentRunActive()) {
+    if (!ownedRun && isCursorAgentRunActive()) {
       await ctx.reply(t("cursor.busy"));
       return false;
     }
 
     const modelName = selectedModel.modelID;
     const progressMessage = await ctx.reply(t("cursor.started", { model: modelName }));
+    if (ownedRun?.aborted) {
+      void bot.api
+        .editMessageText(ctx.chat!.id, progressMessage.message_id, t("stop.success"))
+        .catch(() => {});
+    }
+    ownedRun?.throwIfAborted();
     const startedAt = Date.now();
     const activityLines: string[] = [];
     let lastStatusText = "";
@@ -246,6 +290,7 @@ export async function processUserPrompt(
       taskName: "cursor.agent",
       task: () =>
         runCursorAgentPrompt({
+          ownedRun,
           prompt: text,
           projectDirectory: currentProject.worktree,
           model: selectedModel,
@@ -265,6 +310,7 @@ export async function processUserPrompt(
           },
         }),
       onSuccess: async (result) => {
+        ownedRun?.finish();
         stopProgress();
         await bot.api
           .editMessageText(
@@ -282,6 +328,7 @@ export async function processUserPrompt(
         logger.info(`[Cursor] Agent run completed model="${result.modelName}"`);
       },
       onError: async (error) => {
+        ownedRun?.finish();
         stopProgress();
         if (error instanceof DurableAgyJobAbortedError || error instanceof AgentRunAbortedError) {
           await bot.api
@@ -314,7 +361,7 @@ export async function processUserPrompt(
   }
 
   if (getAssistantMode() === "agy") {
-    if (isAgyAgentRunActive()) {
+    if (!ownedRun && isAgyAgentRunActive()) {
       await ctx.reply(t("agy.busy"));
       return false;
     }
@@ -323,6 +370,7 @@ export async function processUserPrompt(
       logger.warn("[AGY] Selected account profile is unavailable", error);
       return null;
     });
+    ownedRun?.throwIfAborted();
     if (!agyAccount) {
       await ctx.reply(t("account.unavailable"));
       return false;
@@ -335,11 +383,19 @@ export async function processUserPrompt(
     try {
       modelName = await resolveAgyModelName(selectedModel, agyAccount.homeDirectory);
     } catch (error) {
+      ownedRun?.throwIfAborted();
       logger.error("[AGY] Failed to resolve the selected model:", error);
       await ctx.reply(t("model.menu.error"));
       return false;
     }
+    ownedRun?.throwIfAborted();
     const progressMessage = await ctx.reply(t("agy.started", { model: modelName }));
+    if (ownedRun?.aborted) {
+      void bot.api
+        .editMessageText(ctx.chat!.id, progressMessage.message_id, t("stop.success"))
+        .catch(() => {});
+    }
+    ownedRun?.throwIfAborted();
     const startedAt = Date.now();
     const activityLines: string[] = [];
     let lastStatusText = "";
@@ -393,6 +449,7 @@ export async function processUserPrompt(
       taskName: "agy.agent",
       task: () =>
         runAgyAgentPrompt({
+          ownedRun,
           prompt: text,
           projectDirectory: currentProject.worktree,
           model: selectedModel,
@@ -414,6 +471,7 @@ export async function processUserPrompt(
           },
         }),
       onSuccess: async (result) => {
+        ownedRun?.finish();
         stopHeartbeat();
         await bot.api
           .editMessageText(
@@ -433,6 +491,7 @@ export async function processUserPrompt(
         );
       },
       onError: async (error) => {
+        ownedRun?.finish();
         stopHeartbeat();
         if (error instanceof DurableAgyJobAbortedError || error instanceof AgentRunAbortedError) {
           await bot.api

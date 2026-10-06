@@ -21,6 +21,7 @@ import {
   beginAgentRun,
   AgentRunAbortedError,
   isAgentRunActive,
+  ownsAgentRun,
   type AgentRun,
 } from "./agent-run-service.js";
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -39,6 +40,7 @@ export interface AgyAgentRunOptions {
   accountHome?: string;
   timeoutMs?: number;
   notification?: AgyJobNotification;
+  ownedRun?: AgentRun;
   onProgress?: (line: string) => void;
 }
 
@@ -489,11 +491,14 @@ export async function executeAgyAgentPrompt(
 }
 
 export async function runAgyAgentPrompt(options: AgyAgentRunOptions): Promise<AgyAgentRunResult> {
-  if (isAgyAgentRunActive()) {
+  if (options.ownedRun && !ownsAgentRun(options.ownedRun)) {
+    throw new Error("Prepared agent run is no longer active");
+  }
+  if (activeRun || hasRecoveredAgyJob() || (isAgentRunActive() && !options.ownedRun)) {
     throw new Error("AGY agent run already active");
   }
 
-  const run = beginAgentRun();
+  const run = options.ownedRun ?? beginAgentRun();
   activeRun = true;
   try {
     if (usesDurableWorker()) {

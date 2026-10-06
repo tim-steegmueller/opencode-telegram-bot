@@ -244,6 +244,61 @@ describe("direct prompt cancellation", () => {
     delete process.env.AGY_WORKER_MODE;
   });
 
+  it("transfers the Telegram preflight lease and releases it after its child closes", async () => {
+    const child = createChild();
+    mocked.spawnMock.mockReturnValue(child);
+    const { runCursorAgentPrompt } =
+      await import("../../../src/app/services/cursor-agent-service.js");
+    const { beginAgentRun, ownsAgentRun, isAgentRunActive } =
+      await import("../../../src/app/services/agent-run-service.js");
+    const run = beginAgentRun();
+    const pending = runCursorAgentPrompt({
+      prompt: "Prepared prompt",
+      projectDirectory: "/tmp/project",
+      ownedRun: run,
+    });
+    await vi.waitFor(() => expect(mocked.spawnMock).toHaveBeenCalledTimes(1));
+    expect(ownsAgentRun(run)).toBe(true);
+    await expect(
+      runCursorAgentPrompt({
+        prompt: "Duplicate",
+        projectDirectory: "/tmp/project",
+        ownedRun: run,
+      }),
+    ).rejects.toThrow("already active");
+    child.stdout.emit(
+      "data",
+      Buffer.from('{"type":"result","subtype":"success","result":"Done"}\n'),
+    );
+    child.emit("close", 0, null);
+    await expect(pending).resolves.toEqual({ output: "Done", modelName: "auto" });
+    expect(isAgentRunActive()).toBe(false);
+    expect(mocked.spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a stale preflight handle without dispatching or releasing another run", async () => {
+    const { runCursorAgentPrompt } =
+      await import("../../../src/app/services/cursor-agent-service.js");
+    const { beginAgentRun, ownsAgentRun } =
+      await import("../../../src/app/services/agent-run-service.js");
+    const stale = beginAgentRun();
+    stale.finish();
+    const current = beginAgentRun();
+    try {
+      await expect(
+        runCursorAgentPrompt({
+          prompt: "Stale",
+          projectDirectory: "/tmp/project",
+          ownedRun: stale,
+        }),
+      ).rejects.toThrow("no longer active");
+      expect(mocked.spawnMock).not.toHaveBeenCalled();
+      expect(ownsAgentRun(current)).toBe(true);
+    } finally {
+      current.finish();
+    }
+  });
+
   it("aborts preparation without spawning a prompt or retrying it", async () => {
     const { runCursorAgentPrompt } =
       await import("../../../src/app/services/cursor-agent-service.js");

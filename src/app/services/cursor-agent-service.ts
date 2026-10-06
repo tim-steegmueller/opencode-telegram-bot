@@ -13,7 +13,12 @@ import {
   type AgyJobNotification,
 } from "./agy-job-service.js";
 
-import { beginAgentRun, isAgentRunActive, type AgentRun } from "./agent-run-service.js";
+import {
+  beginAgentRun,
+  isAgentRunActive,
+  ownsAgentRun,
+  type AgentRun,
+} from "./agent-run-service.js";
 
 const DEFAULT_CURSOR_MODEL = "auto";
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
@@ -29,6 +34,7 @@ export interface CursorAgentRunOptions {
   attachments?: FilePartInput[];
   timeoutMs?: number;
   notification?: AgyJobNotification;
+  ownedRun?: AgentRun;
   onProgress?: (line: string) => void;
 }
 
@@ -525,11 +531,14 @@ export async function executeCursorAgentPrompt(
 export async function runCursorAgentPrompt(
   options: CursorAgentRunOptions,
 ): Promise<CursorAgentRunResult> {
-  if (isCursorAgentRunActive()) {
+  if (options.ownedRun && !ownsAgentRun(options.ownedRun)) {
+    throw new Error("Prepared agent run is no longer active");
+  }
+  if (activeRun || hasRecoveredAgyJob() || (isAgentRunActive() && !options.ownedRun)) {
     throw new Error("Cursor Agent run already active");
   }
 
-  const run = beginAgentRun();
+  const run = options.ownedRun ?? beginAgentRun();
   activeRun = true;
   try {
     if (["systemd", "tmux"].includes(process.env.AGY_WORKER_MODE?.trim() ?? "")) {

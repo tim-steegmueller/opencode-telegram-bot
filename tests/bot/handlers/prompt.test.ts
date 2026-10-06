@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../../../src/i18n/index.js";
 import type { Bot, Context } from "grammy";
 import {
@@ -212,6 +212,17 @@ function getScheduledBackgroundTask(): {
 }
 
 describe("bot/handlers/prompt", () => {
+  afterEach(async () => {
+    // Close only the still-open lease of a captured external task fixture.
+    const { AgentRunAbortedError, isAgentRunActive } =
+      await import("../../../src/app/services/agent-run-service.js");
+    for (const [task] of mocked.safeBackgroundTaskMock.mock.calls) {
+      if (!isAgentRunActive()) break;
+      if (task.taskName === "agy.agent" || task.taskName === "cursor.agent") {
+        await task.onError?.(new AgentRunAbortedError());
+      }
+    }
+  });
   beforeEach(() => {
     markAppRunning();
     __resetPendingAttachmentsForTests();
@@ -275,6 +286,82 @@ describe("bot/handlers/prompt", () => {
     mocked.sessionPromptMock.mockResolvedValue({ data: {}, error: null });
     mocked.sessionPromptAsyncMock.mockResolvedValue({ data: {}, error: null });
   });
+
+  it("cancels Telegram AGY model preflight without later dispatch or error notice", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    let resolveModel!: (value: string) => void;
+    mocked.resolveAgyModelNameMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveModel = resolve;
+        }),
+    );
+    const ctx = createContext();
+    const deps = createDeps();
+    const pending = processUserPrompt(ctx, "Do not dispatch", deps);
+    await vi.waitFor(() => expect(resolveModel).toBeTypeOf("function"));
+    const { abortActiveAgentRun } = await import("../../../src/app/services/agent-run-service.js");
+    const stopped = abortActiveAgentRun();
+    resolveModel("Gemini 3.8 Flash (High)");
+    await expect(pending).resolves.toBe(false);
+    await expect(stopped).resolves.toBe(true);
+    expect(mocked.safeBackgroundTaskMock).not.toHaveBeenCalled();
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+    expect(ctx.reply).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["agy", "success"],
+    ["cursor", "success"],
+    ["agy", "failed"],
+    ["cursor", "failed"],
+    ["agy", "pending"],
+    ["cursor", "pending"],
+  ])("cancels %s while the started message is pending (edit: %s)", async (mode, editOutcome) => {
+    mocked.getAssistantModeMock.mockReturnValue(mode);
+    let reply!: (value: { message_id: number }) => void;
+    const ctx = createContext();
+    vi.mocked(ctx.reply).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          reply = resolve;
+        }) as never,
+    );
+    const deps = createDeps();
+    if (editOutcome === "failed") {
+      vi.mocked(deps.bot.api.editMessageText).mockRejectedValueOnce(new Error("Edit failed"));
+    }
+    if (editOutcome === "pending") {
+      vi.mocked(deps.bot.api.editMessageText).mockReturnValueOnce(new Promise<never>(() => {}));
+    }
+    const pending = processUserPrompt(ctx, "Do not dispatch", deps);
+    await vi.waitFor(() => expect(reply).toBeTypeOf("function"));
+    const { abortActiveAgentRun } = await import("../../../src/app/services/agent-run-service.js");
+    const stopped = abortActiveAgentRun();
+    reply({ message_id: 100 });
+    await expect(pending).resolves.toBe(false);
+    await expect(stopped).resolves.toBe(true);
+    expect(mocked.safeBackgroundTaskMock).not.toHaveBeenCalled();
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+    expect(mocked.runCursorAgentPromptMock).not.toHaveBeenCalled();
+    expect(deps.bot.api.editMessageText).toHaveBeenCalledWith(ctx.chat!.id, 100, t("stop.success"));
+  });
+
+  it.each(["agy", "cursor"])(
+    "releases the %s preflight lease when the started reply fails",
+    async (mode) => {
+      mocked.getAssistantModeMock.mockReturnValue(mode);
+      const ctx = createContext();
+      const failure = new Error("Telegram reply failed");
+      vi.mocked(ctx.reply).mockRejectedValueOnce(failure);
+      await expect(processUserPrompt(ctx, "Do not dispatch", createDeps())).rejects.toBe(failure);
+      const { isAgentRunActive } = await import("../../../src/app/services/agent-run-service.js");
+      expect(isAgentRunActive()).toBe(false);
+      expect(mocked.safeBackgroundTaskMock).not.toHaveBeenCalled();
+      expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+      expect(mocked.runCursorAgentPromptMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("reports unavailable AGY models without starting work or exposing command details", async () => {
     mocked.getAssistantModeMock.mockReturnValue("agy");

@@ -127,6 +127,10 @@ export function beginAgentRun(): AgentRun {
   return activeRun;
 }
 
+export function ownsAgentRun(run: AgentRun | undefined): boolean {
+  return run !== undefined && activeRun === run;
+}
+
 export function isAgentRunActive(): boolean {
   return activeRun !== null;
 }
