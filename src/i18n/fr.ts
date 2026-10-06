@@ -28,6 +28,9 @@ export const fr: I18nDictionary = {
   "account.prompt": "Choisissez le compte Google pour les nouvelles tâches AGY :",
   "account.selected": "Compte AGY sélectionné : {account}",
   "account.unavailable": "Ce profil est indisponible. Ouvrez /account à nouveau.",
+  "account.login_needed": "Connexion requise",
+  "account.sign_in_required":
+    "Ce compte Chrome doit être connecté à AGY dans son profil isolé. Le compte actuel reste sélectionné.",
 
   "error.load_agents": "❌ Impossible de charger la liste des modes",
   "error.load_models": "❌ Impossible de charger la liste des modèles",

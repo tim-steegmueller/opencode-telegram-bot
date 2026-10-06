@@ -28,6 +28,9 @@ export const es: I18nDictionary = {
   "account.prompt": "Elige la cuenta de Google para nuevos trabajos de AGY:",
   "account.selected": "Cuenta de AGY seleccionada: {account}",
   "account.unavailable": "Este perfil no está disponible. Abre /account de nuevo.",
+  "account.login_needed": "Inicio de sesión necesario",
+  "account.sign_in_required":
+    "Inicia sesión en AGY con el perfil aislado de esta cuenta de Chrome. La cuenta actual sigue seleccionada.",
 
   "error.load_agents": "❌ No se pudo cargar la lista de agentes",
   "error.load_models": "❌ No se pudo cargar la lista de modelos",

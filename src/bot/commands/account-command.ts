@@ -11,7 +11,7 @@ export async function accountCommand(ctx: CommandContext<Context>): Promise<void
   const keyboard = new InlineKeyboard();
 
   for (const [index, account] of accounts.entries()) {
-    const label = `${account.alias === current ? "✅ " : ""}${account.alias}`;
+    const label = `${account.alias === current ? "✅ " : ""}${account.displayName ?? account.alias}${account.requiresLogin ? ` (${t("account.login_needed")})` : ""}`;
     keyboard.text(label, `${ACCOUNT_CALLBACK_PREFIX}${account.alias}`);
     if (index < accounts.length - 1) {
       keyboard.row();

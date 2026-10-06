@@ -237,6 +237,9 @@ async function listRecentFiles(directory: string, sinceMs: number): Promise<stri
 }
 
 function getAgyDataDir(accountHome?: string): string {
+  if (accountHome && path.resolve(accountHome) !== os.homedir()) {
+    return path.join(accountHome, ".gemini", "antigravity-cli");
+  }
   return (
     process.env.AGY_DATA_DIR?.trim() ||
     path.join(accountHome ?? process.env.HOME ?? "", ".gemini", "antigravity-cli")
@@ -434,12 +437,17 @@ export async function executeAgyAgentPrompt({
     logger.info(
       `[AGY] Starting agent run model="${modelName}" project=${projectDirectory} promptLength=${prompt.length}`,
     );
+    const environment = { ...process.env };
+    if (accountHome && path.resolve(accountHome) !== os.homedir()) {
+      delete environment.AGY_DATA_DIR;
+      delete environment.GEMINI_API_KEY;
+    }
     const { stdout, stderr } = await spawnAgyFile(resolveAgyCliPath(), args, {
       cwd: projectDirectory,
       timeout: timeoutMs ?? resolveTimeoutMs(),
       maxBuffer: MAX_BUFFER_BYTES,
       env: {
-        ...process.env,
+        ...environment,
         ...(accountHome ? { HOME: accountHome } : {}),
         ANTIGRAVITY_AGENT: "1",
         AI_AGENT: "1",

@@ -17,6 +17,8 @@ describe("app/services/agy-agent-service", () => {
     mocked.spawnMock.mockReset();
     delete process.env.AGY_CLI_PATH;
     delete process.env.AGY_AGENT_TIMEOUT_MS;
+    delete process.env.AGY_DATA_DIR;
+    delete process.env.GEMINI_API_KEY;
   });
 
   it("maps stored antigravity model IDs to AGY CLI model names", async () => {
@@ -113,6 +115,8 @@ describe("app/services/agy-agent-service", () => {
 
   it("writes Telegram attachments for AGY and removes them after the run", async () => {
     process.env.AGY_CLI_PATH = "/tmp/fake-agy";
+    process.env.AGY_DATA_DIR = "/tmp/other-account";
+    process.env.GEMINI_API_KEY = "fixture-only";
     mocked.spawnMock.mockImplementation(() => {
       const child = new EventEmitter() as EventEmitter & {
         stdout: EventEmitter;
@@ -154,6 +158,11 @@ describe("app/services/agy-agent-service", () => {
       }),
     );
     await expect(access(attachmentDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+    const environment = mocked.spawnMock.mock.calls[0]?.[2]?.env;
+    expect(environment).not.toHaveProperty("AGY_DATA_DIR");
+    expect(environment).not.toHaveProperty("GEMINI_API_KEY");
+    delete process.env.AGY_DATA_DIR;
+    delete process.env.GEMINI_API_KEY;
   });
 
   it("extracts safe activity updates from AGY log and conversation text", async () => {

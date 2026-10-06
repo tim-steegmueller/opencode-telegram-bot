@@ -28,6 +28,9 @@ export const ru: I18nDictionary = {
   "account.prompt": "Выберите Google-аккаунт для новых задач AGY:",
   "account.selected": "Выбран аккаунт AGY: {account}",
   "account.unavailable": "Этот профиль недоступен. Откройте /account снова.",
+  "account.login_needed": "Требуется вход",
+  "account.sign_in_required":
+    "Сначала войдите в AGY в отдельном профиле этого аккаунта Chrome. Текущий аккаунт остаётся выбранным.",
 
   "error.load_agents": "❌ Ошибка при загрузке списка агентов",
   "error.load_models": "❌ Ошибка при загрузке списка моделей",

@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "grammy";
+import { resetRuntimeLocale, setRuntimeLocale } from "../../../src/i18n/index.js";
 
 const mocked = vi.hoisted(() => ({
   listAgyAccountsMock: vi.fn(),
@@ -21,6 +22,7 @@ import { handleAccountCallback } from "../../../src/bot/callbacks/account-callba
 
 describe("bot/commands/account", () => {
   beforeEach(() => {
+    setRuntimeLocale("de");
     vi.clearAllMocks();
     mocked.getAgyAccountMock.mockReturnValue("google-2");
     mocked.listAgyAccountsMock.mockResolvedValue([
@@ -28,6 +30,8 @@ describe("bot/commands/account", () => {
       { alias: "google-2", homeDirectory: "/accounts/google-2/home", isDefault: false },
     ]);
   });
+
+  afterEach(resetRuntimeLocale);
 
   it("shows configured account aliases and marks the current one", async () => {
     const ctx = { reply: vi.fn() } as unknown as Context;
@@ -61,5 +65,37 @@ describe("bot/commands/account", () => {
     expect(await handleAccountCallback(ctx)).toBe(true);
     expect(mocked.setAgyAccountMock).not.toHaveBeenCalled();
     expect(ctx.answerCallbackQuery).toHaveBeenCalled();
+  });
+
+  it("shows Chrome account names and marks profiles that still need AGY sign-in", async () => {
+    mocked.listAgyAccountsMock.mockResolvedValue([
+      { alias: "google-abc", displayName: "alex@example.com", requiresLogin: true },
+    ]);
+    const ctx = { reply: vi.fn() } as unknown as Context;
+
+    await accountCommand(ctx as never);
+
+    const keyboard = (ctx.reply as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.reply_markup;
+    expect(keyboard.inline_keyboard[0][0].text).toContain("alex@example.com");
+    expect(keyboard.inline_keyboard[0][0].text).toContain("Anmeldung nötig");
+    expect(keyboard.inline_keyboard[0][0].callback_data).toBe("account:google-abc");
+  });
+
+  it("does not select an imported Chrome account without its own AGY sign-in", async () => {
+    mocked.listAgyAccountsMock.mockResolvedValue([
+      { alias: "google-abc", displayName: "alex@example.com", requiresLogin: true },
+    ]);
+    const ctx = {
+      callbackQuery: { data: "account:google-abc" },
+      answerCallbackQuery: vi.fn(),
+      deleteMessage: vi.fn(),
+    } as unknown as Context;
+
+    expect(await handleAccountCallback(ctx)).toBe(true);
+    expect(mocked.setAgyAccountMock).not.toHaveBeenCalled();
+    expect(ctx.answerCallbackQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ show_alert: true }),
+    );
+    expect(ctx.deleteMessage).not.toHaveBeenCalled();
   });
 });

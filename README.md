@@ -369,6 +369,10 @@ If STT variables are not set, voice/audio transcription is disabled and the bot 
 
 ### Model Configuration
 
+For isolated Google account selection in direct AGY mode, see
+[Chrome identities and AGY sign-in](docs/agy-accounts.md). Chrome sessions are
+never copied into CLI profiles; pending sign-ins remain explicit.
+
 The model picker uses OpenCode local model state (`favorite` + `recent`):
 
 - Favorites are shown first, then recent

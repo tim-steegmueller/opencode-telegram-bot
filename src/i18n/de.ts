@@ -28,6 +28,9 @@ export const de: I18nDictionary = {
   "account.prompt": "Wähle das Google-Konto für neue AGY-Jobs:",
   "account.selected": "AGY-Konto gewählt: {account}",
   "account.unavailable": "Dieses Account-Profil ist nicht verfügbar. Öffne /account erneut.",
+  "account.login_needed": "Anmeldung nötig",
+  "account.sign_in_required":
+    "Dieses Chrome-Konto ist noch nicht mit AGY angemeldet. Melde es zuerst im eigenen AGY-Profil an; das bisherige Konto bleibt gewählt.",
 
   "error.load_agents": "❌ Agentenliste konnte nicht geladen werden",
   "error.load_models": "❌ Modellliste konnte nicht geladen werden",

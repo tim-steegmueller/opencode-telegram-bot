@@ -13,6 +13,8 @@
   },
   "files": [
     "dist",
+    "scripts/agy-chrome-accounts.mjs",
+    "docs/agy-accounts.md",
     "README.md",
     "LICENSE",
     ".env.example"

@@ -26,6 +26,9 @@ export const en = {
   "account.prompt": "Choose the Google account for new AGY jobs:",
   "account.selected": "AGY account selected: {account}",
   "account.unavailable": "This account profile is unavailable. Open /account again.",
+  "account.login_needed": "Sign-in needed",
+  "account.sign_in_required":
+    "This Chrome account has not signed in to AGY. Sign in to its isolated AGY profile first; the current account remains selected.",
 
   "error.load_agents": "❌ Failed to load agents list",
   "error.load_models": "❌ Failed to load models list",

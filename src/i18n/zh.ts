@@ -28,6 +28,8 @@ export const zh: I18nDictionary = {
   "account.prompt": "选择用于新 AGY 任务的 Google 账号：",
   "account.selected": "已选择 AGY 账号：{account}",
   "account.unavailable": "该账号配置不可用。请重新打开 /account。",
+  "account.login_needed": "需要登录",
+  "account.sign_in_required": "请先在此 Chrome 账号的独立 AGY 配置中登录。当前账号保持不变。",
 
   "error.load_agents": "❌ 加载代理列表失败",
   "error.load_models": "❌ 加载模型列表失败",

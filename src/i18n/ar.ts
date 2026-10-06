@@ -37,6 +37,8 @@ export const ar: I18nDictionary = {
   "account.prompt": "اختر حساب Google لمهام AGY الجديدة:",
   "account.selected": "تم اختيار حساب AGY: {account}",
   "account.unavailable": "ملف الحساب غير متاح. افتح /account مرة أخرى.",
+  "account.login_needed": "يلزم تسجيل الدخول",
+  "account.sign_in_required": "سجّل الدخول إلى AGY في الملف المعزول لحساب Chrome هذا أولاً. يبقى الحساب الحالي محدداً.",
 
   "error.load_agents": "❌ تعذر تحميل قائمة الوكلاء",
   "error.load_models": "❌ تعذر تحميل قائمة النماذج",

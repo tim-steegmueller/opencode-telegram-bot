@@ -18,8 +18,15 @@ export async function handleAccountCallback(ctx: Context): Promise<boolean> {
     return true;
   }
 
+  if (account.requiresLogin) {
+    await ctx.answerCallbackQuery({ text: t("account.sign_in_required"), show_alert: true });
+    return true;
+  }
+
   setAgyAccount(account.alias);
-  await ctx.answerCallbackQuery({ text: t("account.selected", { account: account.alias }) });
+  await ctx.answerCallbackQuery({
+    text: t("account.selected", { account: account.displayName ?? account.alias }),
+  });
   try {
     await ctx.deleteMessage();
   } catch (error) {
