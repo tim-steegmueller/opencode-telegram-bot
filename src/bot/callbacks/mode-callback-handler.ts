@@ -1,3 +1,4 @@
+import { DEFAULT_AGY_MODEL_ID } from "../../app/services/agy-model-service.js";
 import { Context } from "grammy";
 import {
   getAssistantMode,
@@ -17,7 +18,7 @@ const ASSISTANT_MODES: AssistantMode[] = ["opencode", "agy", "cursor"];
 
 function getDefaultModel(mode: AssistantMode) {
   if (mode === "agy") {
-    return { providerID: "antigravity", modelID: "gemini-3.5-flash-high", variant: "default" };
+    return { providerID: "antigravity", modelID: DEFAULT_AGY_MODEL_ID, variant: "default" };
   }
   if (mode === "cursor") {
     return { providerID: "cursor", modelID: "auto", variant: "default" };

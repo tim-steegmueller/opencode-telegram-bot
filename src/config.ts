@@ -59,10 +59,7 @@ function getOptionalBooleanEnvVar(key: string, defaultValue: boolean): boolean {
   return defaultValue;
 }
 
-function getOptionalStreamingModeEnvVar(
-  key: string,
-  defaultValue: StreamingMode,
-): StreamingMode {
+function getOptionalStreamingModeEnvVar(key: string, defaultValue: StreamingMode): StreamingMode {
   const value = getEnvVar(key, false);
 
   if (!value) {
@@ -154,6 +151,9 @@ export function buildTelegramConfig(): {
 export const config = {
   telegram: buildTelegramConfig(),
   opencode: {
+    serverVersion: (getEnvVar("OPENCODE_SERVER_VERSION", false).trim().toLowerCase() === "v2"
+      ? "v2"
+      : "v1") as "v1" | "v2",
     apiUrl: getEnvVar("OPENCODE_API_URL", false) || "http://localhost:4096",
     username: getEnvVar("OPENCODE_SERVER_USERNAME", false) || "opencode",
     password: getEnvVar("OPENCODE_SERVER_PASSWORD", false),
@@ -213,8 +213,7 @@ export const config = {
         : provider === "elevenlabs"
           ? "21m00Tcm4TlvDq8ikWAM"
           : "alloy";
-    const defaultModel =
-      provider === "elevenlabs" ? "eleven_flash_v2_5" : "gpt-4o-mini-tts";
+    const defaultModel = provider === "elevenlabs" ? "eleven_flash_v2_5" : "gpt-4o-mini-tts";
     return {
       apiUrl: getEnvVar("TTS_API_URL", false),
       apiKey: getEnvVar("TTS_API_KEY", false),

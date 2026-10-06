@@ -143,6 +143,70 @@ describe("app/services/agy-job-service", () => {
     await markAgyJobNotified("12345678-1234-1234-1234-123456789abc");
   });
 
+  it("recovers failed Cursor jobs with the correct backend and no private stderr", async () => {
+    const { recoverAgyJobs, writeAgyJobRecord } =
+      await import("../../../src/app/services/agy-job-service.js");
+    await writeAgyJobRecord({
+      jobId: "12345678-1234-1234-1234-123456789abc",
+      unitName: "test-unit",
+      workerMode: "systemd",
+      status: "failed",
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      modelName: "Test model",
+      backend: "cursor",
+      activityLines: [],
+      error: "synthetic-private-stderr",
+      notification: { chatId: 777, progressMessageId: 99 },
+    });
+    const bot = {
+      api: {
+        editMessageText: vi.fn().mockResolvedValue({}),
+        sendMessage: vi.fn().mockResolvedValue({}),
+      },
+    } as unknown as Bot<Context>;
+    await recoverAgyJobs(bot);
+    expect(bot.api.editMessageText).toHaveBeenCalledWith(777, 99, "🔴 Cursor agent failed.");
+    expect(bot.api.sendMessage).toHaveBeenCalledWith(777, "🔴 Cursor agent failed.");
+    expect(JSON.stringify(vi.mocked(bot.api.sendMessage).mock.calls)).not.toContain(
+      "synthetic-private-stderr",
+    );
+  });
+
+  it("reports a recorded AGY quota failure once after restart without starting a worker", async () => {
+    const { recoverAgyJobs, writeAgyJobRecord } =
+      await import("../../../src/app/services/agy-job-service.js");
+    await writeAgyJobRecord({
+      version: 1,
+      jobId: "12345678-1234-1234-1234-123456789abc",
+      unitName: "test-unit",
+      status: "failed",
+      startedAt: "2026-10-06T17:02:03.000Z",
+      completedAt: "2026-10-06T17:02:08.000Z",
+      modelName: "Test model",
+      projectDirectory: "/tmp/project",
+      activityLines: [],
+      error:
+        'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429,"short_error":"Resets in 136h25m44s. synthetic-private-stderr"}',
+      notification: { chatId: 777, progressMessageId: 99 },
+    });
+    const bot = {
+      api: {
+        editMessageText: vi.fn().mockResolvedValue({}),
+        sendMessage: vi.fn().mockResolvedValue({}),
+      },
+    } as unknown as Bot<Context>;
+    await recoverAgyJobs(bot);
+    await recoverAgyJobs(bot);
+    expect(bot.api.sendMessage).toHaveBeenCalledTimes(1);
+    expect(bot.api.sendMessage).toHaveBeenCalledWith(777, expect.stringContaining("HTTP 429"));
+    expect(bot.api.sendMessage).toHaveBeenCalledWith(777, expect.stringContaining("Duration: 5s"));
+    expect(JSON.stringify(vi.mocked(bot.api.sendMessage).mock.calls)).not.toContain(
+      "synthetic-private-stderr",
+    );
+    expect(mocked.spawnMock).not.toHaveBeenCalled();
+  });
+
   it("launches a durable tmux worker with the configured environment", async () => {
     process.env.AGY_WORKER_MODE = "tmux";
     mocked.spawnMock.mockImplementation((file: string, args: string[]) => {
@@ -151,9 +215,9 @@ describe("app/services/agy-job-service", () => {
 
       setTimeout(async () => {
         if (args[0] === "new-session") {
-          const requestFilename = (await import("node:fs/promises").then(({ readdir }) =>
-            readdir(jobsDirectory),
-          )).find((filename) => filename.endsWith(".request.json"));
+          const requestFilename = (
+            await import("node:fs/promises").then(({ readdir }) => readdir(jobsDirectory))
+          ).find((filename) => filename.endsWith(".request.json"));
           const requestPath = path.join(jobsDirectory, requestFilename as string);
           const request = JSON.parse(await readFile(requestPath, "utf8")) as { jobId: string };
           const recordPath = path.join(jobsDirectory, `${request.jobId}.json`);
@@ -174,9 +238,8 @@ describe("app/services/agy-job-service", () => {
       return child;
     });
 
-    const { readAgyJobRecord, runDurableAgyJob } = await import(
-      "../../../src/app/services/agy-job-service.js"
-    );
+    const { readAgyJobRecord, runDurableAgyJob } =
+      await import("../../../src/app/services/agy-job-service.js");
     const result = await runDurableAgyJob({
       prompt: "run on macOS",
       projectDirectory: "/tmp/project",
@@ -207,12 +270,8 @@ describe("app/services/agy-job-service", () => {
       setTimeout(() => child.emit("close", 0, null), 0);
       return child;
     });
-    const {
-      abortActiveAgyJob,
-      DurableAgyJobAbortedError,
-      readAgyJobRecord,
-      runDurableAgyJob,
-    } = await import("../../../src/app/services/agy-job-service.js");
+    const { abortActiveAgyJob, DurableAgyJobAbortedError, readAgyJobRecord, runDurableAgyJob } =
+      await import("../../../src/app/services/agy-job-service.js");
 
     const runPromise = runDurableAgyJob({
       prompt: "long running macOS task",
@@ -249,12 +308,8 @@ describe("app/services/agy-job-service", () => {
       }, 0);
       return child;
     });
-    const {
-      abortActiveAgyJob,
-      DurableAgyJobAbortedError,
-      readAgyJobRecord,
-      runDurableAgyJob,
-    } = await import("../../../src/app/services/agy-job-service.js");
+    const { abortActiveAgyJob, DurableAgyJobAbortedError, readAgyJobRecord, runDurableAgyJob } =
+      await import("../../../src/app/services/agy-job-service.js");
 
     const runPromise = runDurableAgyJob({
       prompt: "long running task",

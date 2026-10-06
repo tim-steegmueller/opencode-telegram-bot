@@ -12,6 +12,22 @@ vi.mock("node:child_process", () => ({
   spawn: mocked.spawnMock,
 }));
 
+vi.mock("../../../src/app/services/agy-model-service.js", () => ({
+  resolveAgyModel: async (model?: { providerID: string; modelID: string }) => {
+    if (model && model.providerID !== "antigravity")
+      throw new Error("Selected provider is not antigravity");
+    const id = model?.modelID ?? "gemini-3.8-flash-high";
+    const names: Record<string, string> = {
+      "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
+      "gemini-3.6-flash-high": "Gemini 3.6 Flash (High)",
+      "gemini-3.5-flash-high": "Gemini 3.5 Flash (High)",
+      "claude-opus-4.6": "Claude Opus 4.6 (Thinking)",
+    };
+    if (!names[id]) throw new Error(`Unavailable model: ${id}`);
+    return { providerID: "antigravity", modelID: id, displayName: names[id] };
+  },
+}));
+
 describe("app/services/agy-agent-service", () => {
   beforeEach(() => {
     mocked.spawnMock.mockReset();
@@ -25,17 +41,21 @@ describe("app/services/agy-agent-service", () => {
     const { resolveAgyModelName } = await import("../../../src/app/services/agy-agent-service.js");
 
     expect(
-      resolveAgyModelName({
+      await resolveAgyModelName({
+        providerID: "antigravity",
+        modelID: "gemini-3.6-flash-high",
+      }),
+    ).toBe("Gemini 3.6 Flash (High)");
+    expect(
+      await resolveAgyModelName({
         providerID: "antigravity",
         modelID: "gemini-3.5-flash-high",
       }),
     ).toBe("Gemini 3.5 Flash (High)");
-    expect(
-      resolveAgyModelName({
-        providerID: "openai",
-        modelID: "gpt-5",
-      }),
-    ).toBe("Gemini 3.5 Flash (High)");
+    await expect(resolveAgyModelName({ providerID: "openai", modelID: "gpt-5" })).rejects.toThrow(
+      "not antigravity",
+    );
+    expect(await resolveAgyModelName()).toBe("Gemini 3.8 Flash (High)");
   });
 
   it("runs AGY with project directory, YOLO permissions, model, and print prompt", async () => {
@@ -172,7 +192,7 @@ describe("app/services/agy-agent-service", () => {
     const lines = extractAgyActivityLines(`
 I0620 13:51:42.225687 printmode.go:85] Print mode: starting (promptLength=28, model="Gemini 3.5 Flash (High)", conversationID="")
 I0620 13:51:46.717146 http_helpers.go:198] URL: https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse Trace: 0xbe314e164f568d65
-{"CommandLine":"pnpm quality","Cwd":"/home/tim/project","WaitMsBeforeAsync":10000,"toolAction":"Run quality check","toolSummary":"Run quality checks"}
+{"CommandLine":"pnpm quality","Cwd":"/home/tim/project","WaitMsBeforeAsync":10000,"toolAction":"Shell command requested.","toolSummary":"Run quality checks"}
 {"AbsolutePath":"/home/tim/project/package.json","EndLine":80,"StartLine":1,"toolAction":"View package.json scripts","toolSummary":"View package.json"}
 E0620 13:52:24.931485 log.go:398] error executing cascade step: CORTEX_STEP_TYPE_RUN_COMMAND: This command requires access to files outside the workspace and cannot be run automatically.
 I0620 13:53:14.571365 server.go:840] Stream goroutine exited for 25ac551c, sending completion signal
@@ -182,10 +202,43 @@ I0620 13:53:14.571379 conversation_manager.go:601] Stream completed for 25ac551c
     expect(lines).toEqual([
       "AGY gestartet: Gemini 3.5 Flash (High)",
       "Gemini streamt Antwort",
-      "Run quality check: pnpm quality",
+      "Shell command requested.",
       "View package.json scripts: /home/tim/project/package.json:1-80",
-      "Tool-Fehler: This command requires access to files outside the workspace and cannot be run automatically.",
+      "Tool failed. Details are in the local AGY log.",
       "AGY Stream abgeschlossen",
     ]);
   });
+});
+
+it("never includes raw credential-bearing shell commands in activity reports", async () => {
+  const { extractAgyActivityLines } =
+    await import("../../../src/app/services/agy-agent-service.js");
+  const lines = extractAgyActivityLines(
+    JSON.stringify({
+      CommandLine: "STAGING_PASS='synthetic-test-secret' node verify.mjs",
+      toolAction: "Checking staging performance",
+    }),
+  );
+  expect(lines).toContain("Shell command requested.");
+  expect(lines.join("\n")).not.toContain("synthetic-test-secret");
+  expect(lines.join("\n")).not.toContain("STAGING_PASS");
+});
+
+it("does not forward commands echoed in action labels, tool errors or confirmation logs", async () => {
+  const { extractAgyActivityLines } =
+    await import("../../../src/app/services/agy-agent-service.js");
+  const command = "STAGING_PASS='synthetic-only' node verify.mjs";
+  const lines = extractAgyActivityLines(
+    [
+      JSON.stringify({ CommandLine: command, toolAction: command }),
+      `Auto-approving tool confirmation: "${command}"`,
+      `error executing cascade step: RUN_COMMAND: ${command}`,
+    ].join("\n"),
+  );
+  expect(lines.join("\n")).not.toContain("synthetic-only");
+  expect(lines).toEqual([
+    "Shell command requested.",
+    "Tool confirmed.",
+    "Tool failed. Details are in the local AGY log.",
+  ]);
 });

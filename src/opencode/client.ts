@@ -1,3 +1,4 @@
+import { createV2OpencodeClient } from "./v2/client.js";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import { config } from "../config.js";
 
@@ -9,7 +10,12 @@ const getAuth = () => {
   return `Basic ${Buffer.from(credentials).toString("base64")}`;
 };
 
-export const opencodeClient = createOpencodeClient({
+const createClient =
+  config.opencode.serverVersion === "v2" ? createV2OpencodeClient : createOpencodeClient;
+
+const auth = getAuth();
+
+export const opencodeClient = createClient({
   baseUrl: config.opencode.apiUrl,
-  headers: config.opencode.password ? { Authorization: getAuth() } : undefined,
+  headers: auth ? { Authorization: auth } : undefined,
 });

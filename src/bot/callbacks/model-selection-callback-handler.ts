@@ -1,3 +1,4 @@
+import { MODEL_CATALOG_CALLBACK, handleModelCatalogCallback } from "../menus/model-catalog-menu.js";
 import { Context, InlineKeyboard } from "grammy";
 import { getStoredAgent, resolveProjectAgent } from "../../app/services/agent-selection-service.js";
 import { searchModels, selectModel } from "../../app/services/model-selection-service.js";
@@ -17,6 +18,7 @@ import {
   MODEL_SEARCH_CANCEL_CALLBACK,
 } from "../menus/model-selection-menu.js";
 import { getAssistantMode } from "../../app/stores/settings-store.js";
+import { searchAgyModels } from "../../app/services/agy-model-service.js";
 import { searchCursorModels } from "../../app/services/cursor-agent-service.js";
 
 interface ModelSearchMetadata {
@@ -128,6 +130,18 @@ export async function handleModelSelect(ctx: Context): Promise<boolean> {
   logger.debug(`[ModelHandler] Received callback: ${callbackQuery.data}`);
 
   try {
+    if (
+      callbackQuery.data === MODEL_CATALOG_CALLBACK ||
+      callbackQuery.data.startsWith(`${MODEL_CATALOG_CALLBACK}:`)
+    ) {
+      const selected = await handleModelCatalogCallback(ctx);
+      if (selected) {
+        clearActiveInlineMenu("model_selected");
+        await applyModelSelectionAndNotify(ctx, selected);
+      }
+      return true;
+    }
+
     // Parse callback data: "model:providerID:modelID"
     const parts = callbackQuery.data.split(":");
     if (parts.length < 3) {
@@ -216,7 +230,11 @@ export async function handleModelSearchTextInput(ctx: Context): Promise<boolean>
 
   try {
     const results =
-      getAssistantMode() === "cursor" ? await searchCursorModels(text) : await searchModels(text);
+      getAssistantMode() === "cursor"
+        ? await searchCursorModels(text)
+        : getAssistantMode() === "agy"
+          ? await searchAgyModels(text)
+          : await searchModels(text);
 
     const keyboard = new InlineKeyboard();
 

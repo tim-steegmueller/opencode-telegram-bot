@@ -89,6 +89,7 @@ vi.mock("../../../src/utils/logger.js", () => ({
 import {
   __resetModelCatalogCacheForTests,
   getFavoriteModels,
+  getFullModelCatalog,
   getModelSelectionLists,
   reconcileStoredModelSelection,
   searchModels,
@@ -105,6 +106,36 @@ function createProvidersResponse(modelsByProvider: Record<string, string[]>) {
     error: null,
   };
 }
+
+describe("full catalog snapshot", () => {
+  beforeEach(() => {
+    __resetModelCatalogCacheForTests();
+    providersMock.mockReset();
+  });
+  it("includes all 29 Go models rather than limiting the result to ten", async () => {
+    providersMock.mockResolvedValue({
+      data: {
+        providers: [
+          {
+            id: "opencode-go",
+            models: Object.fromEntries(
+              Array.from({ length: 29 }, (_, n) => ["deepseek-test-" + n, {}]),
+            ),
+          },
+        ],
+      },
+    });
+    const models = await getFullModelCatalog();
+    expect(models).toHaveLength(29);
+    expect(models.every((m) => m.providerID === "opencode-go")).toBe(true);
+    models[0].modelID = "changed";
+    expect((await getFullModelCatalog())[0].modelID).not.toBe("changed");
+  });
+  it("reports an unavailable catalog instead of displaying a static fallback", async () => {
+    providersMock.mockResolvedValue({ error: new Error("unavailable") });
+    await expect(getFullModelCatalog()).rejects.toThrow("unavailable");
+  });
+});
 
 describe("app/services/model-selection-service", () => {
   let tempDir = "";

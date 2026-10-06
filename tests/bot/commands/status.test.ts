@@ -4,6 +4,7 @@ import { statusCommand } from "../../../src/bot/commands/status-command.js";
 
 const mocked = vi.hoisted(() => ({
   healthMock: vi.fn(),
+  resolveAgyModelNameMock: vi.fn(),
   getCurrentSessionMock: vi.fn(),
   getCurrentProjectMock: vi.fn(),
   getTtsModeMock: vi.fn(),
@@ -21,6 +22,10 @@ const mocked = vi.hoisted(() => ({
   pinnedRefreshContextLimitMock: vi.fn(),
   pinnedGetContextInfoMock: vi.fn(),
   sendBotTextMock: vi.fn(),
+}));
+
+vi.mock("../../../src/app/services/agy-agent-service.js", () => ({
+  resolveAgyModelName: mocked.resolveAgyModelNameMock,
 }));
 
 vi.mock("../../../src/opencode/client.js", () => ({
@@ -79,6 +84,8 @@ vi.mock("../../../src/bot/messages/telegram-text.js", () => ({
 describe("bot/commands/status-command", () => {
   beforeEach(() => {
     mocked.healthMock.mockReset();
+    mocked.resolveAgyModelNameMock.mockReset();
+    mocked.resolveAgyModelNameMock.mockResolvedValue("Claude Opus 4.6 (Thinking)");
     mocked.getCurrentSessionMock.mockReset();
     mocked.getCurrentProjectMock.mockReset();
     mocked.getTtsModeMock.mockReset();
@@ -181,6 +188,31 @@ describe("bot/commands/status-command", () => {
     expect(message).toContain("Account: google-3");
     expect(message).not.toContain("Session:");
     expect(mocked.fetchCurrentAgentMock).not.toHaveBeenCalled();
+    expect(mocked.healthMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps AGY gateway, account and selected model status available when discovery fails", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.getAgyAccountMock.mockReturnValue("google-3");
+    mocked.fetchCurrentModelMock.mockReturnValue({
+      providerID: "antigravity",
+      modelID: "selected-model",
+    });
+    mocked.resolveAgyModelNameMock.mockRejectedValueOnce(new Error("private-provider-error"));
+    const ctx = {
+      chat: { id: 42, type: "private" },
+      message: { text: "/status" },
+      api: {},
+      reply: vi.fn(),
+    } as unknown as Context;
+    await statusCommand(ctx as never);
+    const message = mocked.sendBotTextMock.mock.calls[0]?.[0]?.text as string;
+    expect(message).toContain("Telegram Agent Gateway");
+    expect(message).toContain("Account: google-3");
+    expect(message).toContain("antigravity/selected-model (availability not verified)");
+    expect(message).toContain("Project: /repo");
+    expect(message).not.toContain("private-provider-error");
+    expect(ctx.reply).not.toHaveBeenCalled();
     expect(mocked.healthMock).not.toHaveBeenCalled();
   });
 

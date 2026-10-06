@@ -59,12 +59,20 @@ export async function statusCommand(ctx: CommandContext<Context>) {
     message += `${t("status.line.mode", { mode: agentDisplay })}\n`;
 
     const currentModel = fetchCurrentModel();
-    const modelDisplay =
-      assistantMode === "agy"
-        ? resolveAgyModelName(currentModel)
-        : assistantMode === "cursor"
-          ? `Cursor / ${currentModel.modelID}`
-          : `🤖 ${currentModel.providerID}/${currentModel.modelID}`;
+    let modelDisplay =
+      assistantMode === "cursor"
+        ? `Cursor / ${currentModel.modelID}`
+        : `🤖 ${currentModel.providerID}/${currentModel.modelID}`;
+    if (assistantMode === "agy") {
+      try {
+        modelDisplay = await resolveAgyModelName(currentModel);
+      } catch (error) {
+        logger.warn("[Status] Could not verify the selected AGY model", error);
+        modelDisplay = t("status.model_unverified", {
+          model: `${currentModel.providerID}/${currentModel.modelID}`,
+        });
+      }
+    }
     message += `${t("status.line.model", { model: modelDisplay })}\n`;
     if (assistantMode === "agy") {
       message += `${t("status.line.account", { account: getAgyAccount() })}\n`;

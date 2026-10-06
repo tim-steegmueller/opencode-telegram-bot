@@ -1,3 +1,4 @@
+import { MODEL_CATALOG_CALLBACK } from "./model-catalog-menu.js";
 import { Context, InlineKeyboard } from "grammy";
 import {
   fetchCurrentModel,
@@ -9,20 +10,11 @@ import { t } from "../../i18n/index.js";
 import { replyWithInlineMenu } from "./inline-menu.js";
 import { getAssistantMode } from "../../app/stores/settings-store.js";
 import { listCursorModels } from "../../app/services/cursor-agent-service.js";
+import { listAgyModels } from "../../app/services/agy-model-service.js";
 
 export const MODEL_SEARCH_CALLBACK = "model:search";
 export const MODEL_SEARCH_AGAIN_CALLBACK = "model:search:again";
 export const MODEL_SEARCH_CANCEL_CALLBACK = "model:search:cancel";
-
-const AGY_MODELS: FavoriteModel[] = [
-  { providerID: "antigravity", modelID: "gemini-3.5-flash-high" },
-  { providerID: "antigravity", modelID: "gemini-3.5-flash-medium" },
-  { providerID: "antigravity", modelID: "gemini-3.1-pro-high" },
-  { providerID: "antigravity", modelID: "gemini-3.1-pro-low" },
-  { providerID: "antigravity", modelID: "claude-sonnet-4.6" },
-  { providerID: "antigravity", modelID: "claude-opus-4.6" },
-  { providerID: "antigravity", modelID: "gpt-oss-120b" },
-];
 
 const CURSOR_FAVORITE_MODEL_IDS = [
   "auto",
@@ -34,14 +26,17 @@ const CURSOR_FAVORITE_MODEL_IDS = [
   "glm-5.2-high",
 ];
 
-export function buildAgyModelSelectionMenu(currentModel?: ModelInfo): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
-  for (const [index, model] of AGY_MODELS.entries()) {
+export async function buildAgyModelSelectionMenu(
+  currentModel?: ModelInfo,
+): Promise<InlineKeyboard> {
+  const models = await listAgyModels();
+  const keyboard = new InlineKeyboard().text(t("model.search.button"), MODEL_SEARCH_CALLBACK).row();
+  for (const [index, model] of models.entries()) {
     const isActive =
       currentModel?.providerID === model.providerID && currentModel.modelID === model.modelID;
     const label = `${isActive ? "✅ " : ""}${model.modelID}`;
     keyboard.text(label, `model:${model.providerID}:${model.modelID}`);
-    if (index < AGY_MODELS.length - 1) {
+    if (index < models.length - 1) {
       keyboard.row();
     }
   }
@@ -98,6 +93,7 @@ export async function buildModelSelectionMenu(
 
   // Search button — always present as first row
   keyboard.text(t("model.search.button"), MODEL_SEARCH_CALLBACK).row();
+  keyboard.text(t("model.catalog.button"), MODEL_CATALOG_CALLBACK).row();
 
   if (favorites.length === 0 && recent.length === 0) {
     logger.warn("[ModelHandler] No model choices found in favorites/recent");
@@ -113,7 +109,8 @@ export async function buildModelSelectionMenu(
     const label = `${prefix} ${model.providerID}/${model.modelID}`;
     const labelWithCheck = isActive ? `✅ ${label}` : label;
 
-    keyboard.text(labelWithCheck, `model:${model.providerID}:${model.modelID}`).row();
+    const callback = `model:${model.providerID}:${model.modelID}`;
+    if (Buffer.byteLength(callback) <= 64) keyboard.text(labelWithCheck, callback).row();
   };
 
   favorites.forEach((model) => addButton(model, "⭐"));
@@ -132,7 +129,7 @@ export async function showModelSelectionMenu(ctx: Context): Promise<void> {
       await replyWithInlineMenu(ctx, {
         menuKind: "model",
         text: t("model.menu.select"),
-        keyboard: buildAgyModelSelectionMenu(currentModel),
+        keyboard: await buildAgyModelSelectionMenu(currentModel),
       });
       return;
     }

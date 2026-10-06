@@ -20,6 +20,7 @@ import {
   runAgyAgentPrompt,
 } from "../../app/services/agy-agent-service.js";
 import { formatVariantForButton } from "../../app/services/variant-selection-service.js";
+import { formatAgyFailure } from "../../app/services/agy-error-service.js";
 import { createMainKeyboard } from "../keyboards/main-reply-keyboard.js";
 import { keyboardManager } from "../keyboards/keyboard-manager.js";
 import { pinnedMessageManager } from "../pinned/pinned-message-manager.js";
@@ -288,7 +289,6 @@ export async function processUserPrompt(
           await markAgyJobNotified(error.jobId);
           return;
         }
-        const details = formatErrorDetails(error, 3000);
         await bot.api
           .editMessageText(
             ctx.chat!.id,
@@ -298,7 +298,8 @@ export async function processUserPrompt(
           .catch((sendError) => {
             logger.debug("[Cursor] Failed to mark progress message as failed:", sendError);
           });
-        await bot.api.sendMessage(ctx.chat!.id, t("cursor.error", { error: details }));
+        logger.error("[Cursor] Agent run failed:", error);
+        await bot.api.sendMessage(ctx.chat!.id, t("cursor.failed_status"));
         if (error instanceof DurableAgyJobError) {
           await markAgyJobNotified(error.jobId);
         }
@@ -315,7 +316,6 @@ export async function processUserPrompt(
       return false;
     }
 
-    const modelName = resolveAgyModelName(selectedModel);
     const agyAccount = await resolveSelectedAgyAccount().catch((error) => {
       logger.warn("[AGY] Selected account profile is unavailable", error);
       return null;
@@ -326,6 +326,14 @@ export async function processUserPrompt(
     }
     if (isAppShuttingDown()) {
       await ctx.reply(t("bot.shutting_down"));
+      return false;
+    }
+    let modelName: string;
+    try {
+      modelName = await resolveAgyModelName(selectedModel, agyAccount.homeDirectory);
+    } catch (error) {
+      logger.error("[AGY] Failed to resolve the selected model:", error);
+      await ctx.reply(t("model.menu.error"));
       return false;
     }
     const progressMessage = await ctx.reply(t("agy.started", { model: modelName }));
@@ -433,7 +441,6 @@ export async function processUserPrompt(
           return;
         }
 
-        const details = formatErrorDetails(error, 3000);
         await bot.api
           .editMessageText(
             ctx.chat!.id,
@@ -443,7 +450,11 @@ export async function processUserPrompt(
           .catch((sendError) => {
             logger.debug("[AGY] Failed to mark progress message as failed:", sendError);
           });
-        await bot.api.sendMessage(ctx.chat!.id, t("agy.error", { error: details }));
+        logger.error("[AGY] Agent run failed:", error);
+        await bot.api.sendMessage(
+          ctx.chat!.id,
+          formatAgyFailure(error, modelName, (Date.now() - startedAt) / 1000),
+        );
         if (error instanceof DurableAgyJobError) {
           await markAgyJobNotified(error.jobId);
         }

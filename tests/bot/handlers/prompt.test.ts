@@ -38,6 +38,7 @@ const mocked = vi.hoisted(() => ({
     modelID: "gpt-5",
     variant: "default",
   },
+  resolveAgyModelNameMock: vi.fn(() => "Gemini 3.5 Flash (High)"),
   runAgyAgentPromptMock: vi.fn(),
   isAgyAgentRunActiveMock: vi.fn(),
   resolveSelectedAgyAccountMock: vi.fn(),
@@ -84,7 +85,7 @@ vi.mock("../../../src/app/services/model-selection-service.js", () => ({
 
 vi.mock("../../../src/app/services/agy-agent-service.js", () => ({
   isAgyAgentRunActive: mocked.isAgyAgentRunActiveMock,
-  resolveAgyModelName: vi.fn(() => "Gemini 3.5 Flash (High)"),
+  resolveAgyModelName: mocked.resolveAgyModelNameMock,
   runAgyAgentPrompt: mocked.runAgyAgentPromptMock,
 }));
 
@@ -274,6 +275,70 @@ describe("bot/handlers/prompt", () => {
     mocked.sessionPromptAsyncMock.mockResolvedValue({ data: {}, error: null });
   });
 
+  it("reports unavailable AGY models without starting work or exposing command details", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.resolveAgyModelNameMock.mockRejectedValueOnce(new Error("synthetic-private-cli-error"));
+    const ctx = {
+      chat: { id: 123 },
+      reply: vi.fn().mockResolvedValue({ message_id: 1 }),
+    } as unknown as Context;
+    const bot = { api: { sendMessage: vi.fn() } } as unknown as Bot<Context>;
+    const handled = await processUserPrompt(ctx, "hello", {
+      bot,
+      ensureEventSubscription: vi.fn(),
+    });
+    expect(handled).toBe(false);
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("model"));
+    expect(JSON.stringify(vi.mocked(ctx.reply).mock.calls)).not.toContain(
+      "synthetic-private-cli-error",
+    );
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the selected isolated account when validating the requested AGY model", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    mocked.resolveSelectedAgyAccountMock.mockResolvedValueOnce({
+      homeDirectory: "/tmp/captured-account",
+    });
+    mocked.resolveAgyModelNameMock.mockRejectedValueOnce(new Error("unavailable model"));
+    const handled = await processUserPrompt(createContext(), "hello", createDeps());
+    expect(handled).toBe(false);
+    expect(mocked.resolveAgyModelNameMock).toHaveBeenLastCalledWith(
+      mocked.storedModel,
+      "/tmp/captured-account",
+    );
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps Cursor failure stderr and stacks out of Telegram", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("cursor");
+    const deps = createDeps();
+    await processUserPrompt(createContext(), "hello", deps);
+    const background = mocked.safeBackgroundTaskMock.mock.calls[0][0];
+    await background.onError(new Error("synthetic-private-stderr"));
+    expect(deps.bot.api.sendMessage).toHaveBeenCalledWith(777, "🔴 Cursor agent failed.");
+    expect(JSON.stringify(vi.mocked(deps.bot.api.sendMessage).mock.calls)).not.toContain(
+      "synthetic-private-stderr",
+    );
+  });
+
+  it("reports AGY quota failure without stderr exposure or replay", async () => {
+    mocked.getAssistantModeMock.mockReturnValue("agy");
+    const deps = createDeps();
+    await processUserPrompt(createContext(), "hello", deps);
+    const background = mocked.safeBackgroundTaskMock.mock.calls[0][0];
+    await background.onError(
+      new Error(
+        'AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429,"short_error":"Resets in 12h30m. synthetic-private-stderr"}',
+      ),
+    );
+    expect(deps.bot.api.sendMessage).toHaveBeenCalledWith(777, expect.stringContaining("HTTP 429"));
+    expect(JSON.stringify(vi.mocked(deps.bot.api.sendMessage).mock.calls)).not.toContain(
+      "synthetic-private-stderr",
+    );
+    expect(mocked.runAgyAgentPromptMock).not.toHaveBeenCalled();
+  });
+
   it("does not dispatch a prompt after gateway shutdown has started", async () => {
     markAppShuttingDown();
     const ctx = createContext();
@@ -405,9 +470,7 @@ describe("bot/handlers/prompt", () => {
     } as const;
 
     const deps = createDeps();
-    const handled = await processUserPrompt(createContext(), "Fix this UI", deps, [
-      attachment,
-    ]);
+    const handled = await processUserPrompt(createContext(), "Fix this UI", deps, [attachment]);
 
     expect(handled).toBe(true);
     expect(deps.bot.api.sendChatAction).toHaveBeenCalledWith(777, "typing");

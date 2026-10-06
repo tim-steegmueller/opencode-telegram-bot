@@ -93,7 +93,7 @@ describe("bot/callbacks/mode-callback-handler", () => {
     expect(mocked.setAssistantModeMock).toHaveBeenCalledWith("agy");
     expect(mocked.selectModelMock).toHaveBeenCalledWith({
       providerID: "antigravity",
-      modelID: "gemini-3.5-flash-high",
+      modelID: "gemini-3.8-flash-high",
       variant: "default",
     });
     expect(mocked.keyboardUpdateModelMock).toHaveBeenCalledWith(

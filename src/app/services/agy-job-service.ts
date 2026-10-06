@@ -8,6 +8,7 @@ import type { Bot, Context } from "grammy";
 import type { FilePartInput } from "@opencode-ai/sdk/v2";
 import type { ModelInfo } from "../types/model.js";
 import { t } from "../../i18n/index.js";
+import { formatAgyFailure } from "./agy-error-service.js";
 import { logger } from "../../utils/logger.js";
 import { chunkTelegramRenderedBlocks } from "../../bot/render/chunker.js";
 import {
@@ -518,9 +519,23 @@ async function notifyRecoveredJob(bot: Bot<Context>, record: AgyJobRecord): Prom
 
   if (record.status === "failed") {
     await bot.api
-      .editMessageText(chatId, progressMessageId, t("agy.failed_status"))
+      .editMessageText(
+        chatId,
+        progressMessageId,
+        t(record.backend === "cursor" ? "cursor.failed_status" : "agy.failed_status"),
+      )
       .catch((error) => logger.debug("[AGY] Failed to mark recovered progress message", error));
-    await bot.api.sendMessage(chatId, t("agy.error", { error: record.error || "Unknown error" }));
+    await bot.api.sendMessage(
+      chatId,
+      record.backend === "cursor"
+        ? t("cursor.failed_status")
+        : formatAgyFailure(
+            record.error,
+            record.modelName,
+            (Date.parse(record.completedAt ?? record.startedAt) - Date.parse(record.startedAt)) /
+              1000,
+          ),
+    );
     await markAgyJobNotified(record.jobId);
     return;
   }

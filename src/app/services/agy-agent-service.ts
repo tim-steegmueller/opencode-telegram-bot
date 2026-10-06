@@ -12,25 +12,15 @@ import {
   type AgyJobNotification,
 } from "./agy-job-service.js";
 import type { Bot, Context } from "grammy";
+import { t } from "../../i18n/index.js";
 import { resolveAgyCliPath } from "../../runtime/executable-paths.js";
 
-const DEFAULT_AGY_MODEL = "Gemini 3.5 Flash (High)";
+import { resolveAgyModel } from "./agy-model-service.js";
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 const ACTIVITY_POLL_INTERVAL_MS = 2_500;
 const ACTIVITY_FILE_LOOKBACK_MS = 5_000;
 const ACTIVITY_MAX_FILE_BYTES = 768 * 1024;
-
-const AGY_MODEL_NAMES: Record<string, string> = {
-  "gemini-3.5-flash-high": "Gemini 3.5 Flash (High)",
-  "gemini-3.5-flash-medium": "Gemini 3.5 Flash (Medium)",
-  "gemini-3.5-flash-low": "Gemini 3.5 Flash (Low)",
-  "gemini-3.1-pro-high": "Gemini 3.1 Pro (High)",
-  "gemini-3.1-pro-low": "Gemini 3.1 Pro (Low)",
-  "claude-sonnet-4.6": "Claude Sonnet 4.6 (Thinking)",
-  "claude-opus-4.6": "Claude Opus 4.6 (Thinking)",
-  "gpt-oss-120b": "GPT-OSS 120B (Medium)",
-};
 
 let activeRun = false;
 
@@ -60,12 +50,11 @@ function resolveTimeoutMs(): number {
   return Number.isFinite(value) && value > 0 ? value : DEFAULT_TIMEOUT_MS;
 }
 
-export function resolveAgyModelName(model?: ModelInfo): string {
-  if (model?.providerID !== "antigravity") {
-    return DEFAULT_AGY_MODEL;
-  }
-
-  return AGY_MODEL_NAMES[model.modelID] ?? DEFAULT_AGY_MODEL;
+export async function resolveAgyModelName(
+  model?: ModelInfo,
+  accountHome?: string,
+): Promise<string> {
+  return (await resolveAgyModel(model, accountHome)).displayName;
 }
 
 export function isAgyAgentRunActive(): boolean {
@@ -138,7 +127,7 @@ function formatToolCall(toolCall: Record<string, unknown>): string | null {
   const action = decodeJsonString(toolCall.toolAction) || decodeJsonString(toolCall.toolSummary);
   const commandLine = decodeJsonString(toolCall.CommandLine);
   if (commandLine) {
-    return compactText(`${action || "Bash"}: ${commandLine}`);
+    return t("agy.activity.command");
   }
 
   const absolutePath = decodeJsonString(toolCall.AbsolutePath);
@@ -187,12 +176,12 @@ export function extractAgyActivityLines(text: string): string[] {
     }
   }
 
-  for (const match of text.matchAll(/Auto-approving tool confirmation: "([^"]+)"/g)) {
-    add(`Tool bestätigt: ${match[1]}`);
+  if (/Auto-approving tool confirmation: "([^"]+)"/.test(text)) {
+    add(t("agy.activity.confirmation"));
   }
 
-  for (const match of text.matchAll(/error executing cascade step: [^:]+: ([^\n]+)/g)) {
-    add(`Tool-Fehler: ${compactText(match[1] ?? "")}`);
+  if (/error executing cascade step: [^:]+: ([^\n]+)/.test(text)) {
+    add(t("agy.activity.error"));
   }
 
   if (text.includes("Stream completed")) {
@@ -417,7 +406,7 @@ export async function executeAgyAgentPrompt({
   timeoutMs,
   onProgress,
 }: AgyAgentRunOptions): Promise<AgyAgentRunResult> {
-  const modelName = resolveAgyModelName(model);
+  const modelName = await resolveAgyModelName(model, accountHome);
   let preparedAttachments: Awaited<ReturnType<typeof prepareAgyAttachments>> = null;
 
   try {
@@ -479,7 +468,7 @@ export async function runAgyAgentPrompt(options: AgyAgentRunOptions): Promise<Ag
   activeRun = true;
   try {
     if (usesDurableWorker()) {
-      const modelName = resolveAgyModelName(options.model);
+      const modelName = await resolveAgyModelName(options.model, options.accountHome);
       return await runDurableAgyJob({
         ...options,
         modelName,

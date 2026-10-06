@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InlineKeyboard } from "grammy";
 
 const mocked = vi.hoisted(() => ({
+  listAgyModelsMock: vi.fn(),
   getModelSelectionListsMock: vi.fn(),
   searchModelsMock: vi.fn(),
   interactionManagerGetSnapshotMock: vi.fn(),
@@ -9,6 +10,11 @@ const mocked = vi.hoisted(() => ({
   interactionManagerTransitionMock: vi.fn(),
   interactionManagerClearMock: vi.fn(),
   ensureActiveInlineMenuMock: vi.fn(),
+}));
+
+vi.mock("../../../src/app/services/agy-model-service.js", () => ({
+  listAgyModels: mocked.listAgyModelsMock,
+  searchAgyModels: vi.fn(),
 }));
 
 vi.mock("../../../src/app/services/model-selection-service.js", () => ({
@@ -58,6 +64,23 @@ function mockContext(overrides: Record<string, unknown> = {}) {
 
 describe("bot model selection", () => {
   beforeEach(() => {
+    mocked.listAgyModelsMock.mockResolvedValue([
+      {
+        providerID: "antigravity",
+        modelID: "gemini-3.8-flash-high",
+        displayName: "Gemini 3.8 Flash (High)",
+      },
+      {
+        providerID: "antigravity",
+        modelID: "gemini-3.8-flash-medium",
+        displayName: "Gemini 3.8 Flash (Medium)",
+      },
+      {
+        providerID: "antigravity",
+        modelID: "gemini-3.8-flash-low",
+        displayName: "Gemini 3.8 Flash (Low)",
+      },
+    ]);
     mocked.getModelSelectionListsMock.mockReset();
     mocked.searchModelsMock.mockReset();
     mocked.interactionManagerGetSnapshotMock.mockReset();
@@ -68,16 +91,21 @@ describe("bot model selection", () => {
   });
 
   describe("buildModelSelectionMenu", () => {
-    it("builds a dedicated AGY model list", () => {
-      const keyboard = buildAgyModelSelectionMenu({
+    it("builds an AGY model list from the live catalog", async () => {
+      const keyboard = await buildAgyModelSelectionMenu({
         providerID: "antigravity",
-        modelID: "claude-opus-4.6",
+        modelID: "gemini-3.8-flash-high",
       });
 
-      expect(keyboard.inline_keyboard).toHaveLength(7);
-      expect(keyboard.inline_keyboard[5][0]).toMatchObject({
-        text: "✅ claude-opus-4.6",
-        callback_data: "model:antigravity:claude-opus-4.6",
+      expect(keyboard.inline_keyboard).toHaveLength(4);
+      expect(keyboard.inline_keyboard.slice(1, 4).map((row) => row[0].callback_data)).toEqual([
+        "model:antigravity:gemini-3.8-flash-high",
+        "model:antigravity:gemini-3.8-flash-medium",
+        "model:antigravity:gemini-3.8-flash-low",
+      ]);
+      expect(keyboard.inline_keyboard[1][0]).toMatchObject({
+        text: "✅ gemini-3.8-flash-high",
+        callback_data: "model:antigravity:gemini-3.8-flash-high",
       });
     });
 

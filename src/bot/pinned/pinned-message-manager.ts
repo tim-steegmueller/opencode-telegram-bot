@@ -425,11 +425,10 @@ class PinnedMessageManager {
       );
 
       if (!error && data && data.length > 0) {
-        this.state.changedFiles = data.map((d) => ({
-          file: d.file,
-          additions: d.additions,
-          deletions: d.deletions,
-        }));
+        this.state.changedFiles = data.flatMap((d) => {
+          const file = d.file;
+          return file ? [{ file, additions: d.additions, deletions: d.deletions }] : [];
+        });
         logger.info(
           `[PinnedManager] Loaded ${this.state.changedFiles.length} file diffs from session.diff()`,
         );
@@ -463,7 +462,9 @@ class PinnedMessageManager {
 
       if (error || !messagesData) {
         if (isExpectedOpencodeUnavailableError(error)) {
-          logger.debug("[PinnedManager] OpenCode server unavailable; skipping diff message restore");
+          logger.debug(
+            "[PinnedManager] OpenCode server unavailable; skipping diff message restore",
+          );
         } else {
           logger.debug(`[PinnedManager] loadDiffsFromMessages: error or no data`);
         }
